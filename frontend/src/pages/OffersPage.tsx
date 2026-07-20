@@ -1,4 +1,6 @@
 import { useMemo, useState } from 'react'
+import { rowAction } from '@/lib/a11y'
+import { useStore } from '@/state/store'
 import SlideOver from '@/components/SlideOver'
 import { useApplications, useCreateOffer, useOffers, useSendOffer } from '@/api/hooks'
 import { date, money } from '@/lib/format'
@@ -49,6 +51,7 @@ function Fact({ label, children }: { label: string; children: React.ReactNode })
 
 function OfferDetail({ o, onClose }: { o: Offer; onClose: () => void }) {
   const send = useSendOffer()
+  const { toastMsg } = useStore()
   const isDraft = (o.status || '').toUpperCase() === 'DRAFT'
   return (
     <SlideOver label={`${o.candidateName} offer`} onClose={onClose} width={480}>
@@ -81,7 +84,7 @@ function OfferDetail({ o, onClose }: { o: Offer; onClose: () => void }) {
       </div>
       <div style={{ display: 'flex', gap: 8, padding: '14px 20px', borderTop: '1px solid var(--line)' }}>
         {isDraft ? (
-          <button className="btn btn--primary btn--sm" style={{ flex: 1 }} disabled={send.isPending} onClick={() => send.mutate(o.id, { onSuccess: onClose })}>
+          <button className="btn btn--primary btn--sm" style={{ flex: 1 }} disabled={send.isPending} onClick={() => send.mutate(o.id, { onSuccess: () => { toastMsg(`Offer sent${o.candidateName ? ` to ${o.candidateName}` : ''}`); onClose() } })}>
             {send.isPending ? 'Sending…' : 'Send offer'}
           </button>
         ) : (
@@ -97,6 +100,7 @@ function OfferDetail({ o, onClose }: { o: Offer; onClose: () => void }) {
 function NewOfferForm({ onClose }: { onClose: () => void }) {
   const { data: apps } = useApplications()
   const create = useCreateOffer()
+  const { toastMsg } = useStore()
   const [f, setF] = useState<OfferCreate>({ applicationId: '', title: '', compPeriod: 'year' })
   const set = (patch: Partial<OfferCreate>) => setF((p) => ({ ...p, ...patch }))
   const valid = f.applicationId && f.title.trim()
@@ -135,7 +139,7 @@ function NewOfferForm({ onClose }: { onClose: () => void }) {
       <div style={{ display: 'flex', gap: 8, padding: '14px 20px', borderTop: '1px solid var(--line)' }}>
         <button className="btn btn--ghost btn--sm" onClick={onClose}>Cancel</button>
         <div style={{ flex: 1 }} />
-        <button className="btn btn--primary btn--sm" disabled={!valid || create.isPending} onClick={() => create.mutate({ ...f, title: f.title.trim() }, { onSuccess: onClose })}>
+        <button className="btn btn--primary btn--sm" disabled={!valid || create.isPending} onClick={() => create.mutate({ ...f, title: f.title.trim() }, { onSuccess: () => { toastMsg('Offer drafted'); onClose() } })}>
           {create.isPending ? 'Creating…' : 'Create draft'}
         </button>
       </div>
@@ -209,7 +213,7 @@ export default function OffersPage() {
             </thead>
             <tbody>
               {data.map((o) => (
-                <tr key={o.id} onClick={() => setSelected(o)} style={{ cursor: 'pointer' }}>
+                <tr key={o.id} {...rowAction(() => setSelected(o))}>
                   <td className="t-strong">{o.candidateName || '—'}</td>
                   <td className="t-muted">{o.jobTitle || '—'}</td>
                   <td>{o.title || '—'}</td>

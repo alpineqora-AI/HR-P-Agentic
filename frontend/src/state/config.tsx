@@ -42,6 +42,9 @@ export const MODULES: ModuleDef[] = [
   { key: 'compliance', label: 'Bias & Compliance', group: 'Platform' },
   { key: 'integrations', label: 'Integrations', group: 'Platform' },
   { key: 'audit', label: 'Audit', group: 'Platform' },
+  // Admin
+  // Locked: hiding Admin would lock you out of the module toggles themselves.
+  { key: 'admin', label: 'Admin', group: 'Admin', locked: true },
 ]
 
 export const PERMISSIONS = [
@@ -52,6 +55,7 @@ export const PERMISSIONS = [
   { key: 'offers.manage', label: 'Create & send offers' },
   { key: 'admin.config', label: 'Configure modules' },
   { key: 'admin.roles', label: 'Manage roles & permissions' },
+  { key: 'admin.builders', label: 'Build surveys & emails' },
 ] as const
 
 export type PermKey = (typeof PERMISSIONS)[number]['key']
@@ -155,6 +159,8 @@ interface ConfigCtx extends ConfigShape {
   toggleModule: (key: string) => void
   setRolePermission: (roleKey: string, perm: string, value: boolean) => void
   setUserRole: (userId: string, roleKey: string) => void
+  addUser: (name: string, email: string, roleKey: string) => void
+  removeUser: (userId: string) => void
   setCurrentUser: (userId: string) => void
   can: (perm: PermKey) => boolean
   currentUser: User | undefined
@@ -174,7 +180,11 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     }
   }, [cfg])
 
-  const isModuleOn = useCallback((key: string) => cfg.modules[key] !== false, [cfg.modules])
+  const isModuleOn = useCallback(
+    // Locked modules are always on, even if an older stored config disabled them.
+    (key: string) => MODULES.find((m) => m.key === key)?.locked === true || cfg.modules[key] !== false,
+    [cfg.modules],
+  )
 
   const toggleModule = useCallback((key: string) => {
     const mod = MODULES.find((m) => m.key === key)
@@ -191,6 +201,22 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
 
   const setUserRole = useCallback((userId: string, roleKey: string) => {
     setCfg((c) => ({ ...c, users: c.users.map((u) => (u.id === userId ? { ...u, roleKey } : u)) }))
+  }, [])
+
+  const addUser = useCallback((name: string, email: string, roleKey: string) => {
+    const trimmed = name.trim() || email.trim().split('@')[0]
+    const initials =
+      trimmed
+        .split(/\s+/)
+        .map((w) => w[0]?.toUpperCase() ?? '')
+        .slice(0, 2)
+        .join('') || 'U'
+    const id = 'u' + Math.random().toString(36).slice(2, 9)
+    setCfg((c) => ({ ...c, users: [...c.users, { id, name: trimmed, initials, email: email.trim(), roleKey }] }))
+  }, [])
+
+  const removeUser = useCallback((userId: string) => {
+    setCfg((c) => ({ ...c, users: c.users.filter((u) => u.id !== userId) }))
   }, [])
 
   const setCurrentUser = useCallback((userId: string) => setCfg((c) => ({ ...c, currentUserId: userId })), [])
@@ -215,6 +241,8 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     toggleModule,
     setRolePermission,
     setUserRole,
+    addUser,
+    removeUser,
     setCurrentUser,
     can,
     currentUser,

@@ -1,6 +1,7 @@
 import { Link, useParams } from 'react-router-dom'
+import AriaConversations from '@/components/AriaConversations'
 import { useCandidate } from '../api/hooks'
-import { initials } from '../lib/format'
+import { humanize, initials } from '../lib/format'
 
 function fitClass(score: number) {
   if (score >= 80) return 'badge--ok'
@@ -88,7 +89,7 @@ export default function CandidateDetailPage() {
               {c.yearsExperience ? <span>{c.yearsExperience} yrs experience</span> : null}
             </div>
           </div>
-          <span className="badge">{c.source}</span>
+          <span className="badge">{humanize(c.source)}</span>
         </div>
       </div>
 
@@ -134,7 +135,17 @@ export default function CandidateDetailPage() {
           )}
         </div>
 
-        <div className="card">
+        <div className="card" style={{ gridColumn: 1 }}>
+          <div className="card__head">
+            <h3 style={{ fontSize: 15 }}>Aria conversations</h3>
+            <span className="eyebrow">From the career-site chat</span>
+          </div>
+          <div className="card__body">
+            <AriaConversations apps={(c.applications ?? []).map((a) => ({ id: a.id, jobTitle: a.jobTitle }))} />
+          </div>
+        </div>
+
+        <div className="card" style={{ gridColumn: 2, gridRow: '1 / span 2' }}>
           <div className="card__head">
             <h3 style={{ fontSize: 15 }}>Skills</h3>
             <span className="eyebrow">{c.skills?.length ?? 0} mapped</span>

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { defaultJobId } from '@/lib/jobs'
 import { useJobs, useMatch } from '@/api/hooks'
 import type { MatchRow } from '@/api/types'
 
@@ -91,7 +92,7 @@ function MatchCard({ row }: { row: MatchRow }) {
 export default function MatchingPage() {
   const { data: jobs, isLoading: jobsLoading } = useJobs()
   const [jobId, setJobId] = useState<string>('')
-  const selectedJob = jobId || jobs?.[0]?.id
+  const selectedJob = jobId || defaultJobId(jobs)
   const { data: matches, isLoading: matchesLoading } = useMatch(selectedJob)
 
   return (

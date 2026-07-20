@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useStore } from '@/state/store'
 import SlideOver from '@/components/SlideOver'
 import { useAddPoolMember, useCandidates, useCreatePool, usePools } from '@/api/hooks'
 import { initials } from '@/lib/format'
@@ -8,6 +9,7 @@ import type { Pool } from '@/api/types'
 
 function NewPoolForm({ onClose }: { onClose: () => void }) {
   const create = useCreatePool()
+  const { toastMsg } = useStore()
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   return (
@@ -29,7 +31,7 @@ function NewPoolForm({ onClose }: { onClose: () => void }) {
       <div style={{ display: 'flex', gap: 8, padding: '14px 20px', borderTop: '1px solid var(--line)' }}>
         <button className="btn btn--ghost btn--sm" onClick={onClose}>Cancel</button>
         <div style={{ flex: 1 }} />
-        <button className="btn btn--primary btn--sm" disabled={!name.trim() || create.isPending} onClick={() => create.mutate({ name: name.trim(), description: description.trim() || undefined }, { onSuccess: onClose })}>
+        <button className="btn btn--primary btn--sm" disabled={!name.trim() || create.isPending} onClick={() => create.mutate({ name: name.trim(), description: description.trim() || undefined }, { onSuccess: (p) => { toastMsg(`Pool "${p.name}" created`); onClose() } })}>
           {create.isPending ? 'Creating…' : 'Create pool'}
         </button>
       </div>

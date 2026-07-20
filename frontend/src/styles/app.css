@@ -20,11 +20,8 @@ body {
   margin: 0;
 }
 
-/* Sans-serif headings (the DS default is an editorial serif) to match the
-   conversational, product feel of the app. */
-:root {
-  --font-display: var(--font-sans);
-}
+/* Display typography: the DS's editorial serif (Source Serif 4) for headings
+   and stat values — Inter body + mono micro-labels stay. */
 
 /* The main content area is a CSS-grid track; without min-width:0 a wide child
    (e.g. the horizontally-scrolling Pipeline board) expands the track past the
@@ -109,13 +106,24 @@ a {
   letter-spacing: 0.02em;
 }
 .brand-logo {
-  height: 26px;
+  height: 19px;
   width: auto;
-  max-width: 180px;
+  max-width: 200px;
   display: block;
 }
+.brand-sub {
+  display: block;
+  color: var(--ink-4);
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  line-height: 1;
+  /* Start where the wordmark starts: (flag 133 + gap 28) / lockup height 73 × 19px. */
+  margin-left: 42px;
+}
 .brand-mark-img {
-  height: 26px;
+  height: 24px;
   width: auto;
   display: block;
 }
@@ -194,4 +202,92 @@ a {
   max-width: 920px;
   margin: 0 auto;
   padding: 32px 24px 64px;
+}
+
+/* ── Elevation & motion (signature pass) ──────────────────────────────────
+   A slightly deeper page surface + soft card shadows so panels visibly sit
+   on the page, plus small transitions that make interactions feel physical. */
+:root {
+  --app-bg: #EEF1F7;
+}
+.card {
+  box-shadow: 0 1px 2px rgba(14, 26, 51, 0.05), 0 0 0 0.5px rgba(14, 26, 51, 0.03);
+}
+button.card {
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+button.card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(14, 26, 51, 0.10);
+}
+.btn {
+  transition: transform 0.08s ease, background 0.15s ease, border-color 0.15s ease;
+}
+.btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+.data-table tbody tr {
+  transition: background 0.12s ease;
+}
+
+/* Toast slides up as it appears. */
+.toast {
+  animation: toast-in 0.22s ease;
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Loading shimmer for skeleton lines. */
+.skeleton {
+  display: inline-block;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--app-sunken) 25%, #F6F8FC 50%, var(--app-sunken) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.3s linear infinite;
+  color: transparent;
+}
+@keyframes shimmer {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+
+/* ── Navy sidebar ─────────────────────────────────────────────────────────
+   The nav rail wears a deep Bank of America navy (one step darker than
+   --bofa-navy, matching BofA's dark chrome); light text/icons, white active
+   bar. Overrides ds-product defaults. */
+:root {
+  --bofa-navy-deep: #01184C;
+}
+.app__side {
+  background: var(--bofa-navy-deep);
+}
+.app__side .nav-group {
+  color: rgba(255, 255, 255, 0.52);
+}
+.app__side .nav-item {
+  color: rgba(255, 255, 255, 0.8);
+}
+.app__side .nav-item .ic {
+  color: rgba(255, 255, 255, 0.55);
+}
+.app__side .nav-item:hover {
+  background: rgba(255, 255, 255, 0.09);
+  color: #fff;
+}
+.app__side .nav-item:hover .ic {
+  color: rgba(255, 255, 255, 0.85);
+}
+.app__side .nav-item[aria-current="page"] {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  box-shadow: inset 3px 0 0 #fff;
+}
+.app__side .nav-item[aria-current="page"] .ic {
+  color: #fff;
+}
+.app__side .nav-item .count {
+  background: rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.8);
 }

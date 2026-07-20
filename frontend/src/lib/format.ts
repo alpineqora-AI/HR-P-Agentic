@@ -56,3 +56,10 @@ export function initials(name: string | null | undefined) {
   const parts = name.trim().split(/\s+/)
   return ((parts[0]?.[0] ?? '') + (parts.length > 1 ? (parts[parts.length - 1]?.[0] ?? '') : '')).toUpperCase()
 }
+
+/** Human label for a backend enum, e.g. "EARLY_CAREER" → "Early career". */
+export function humanize(value: string | null | undefined) {
+  if (!value) return '—'
+  const words = value.replace(/[_-]+/g, ' ').trim().toLowerCase()
+  return words.charAt(0).toUpperCase() + words.slice(1)
+}

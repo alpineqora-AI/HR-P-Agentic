@@ -44,13 +44,11 @@ public class MatchingService {
                     gaps.add(js);
                 }
             }
-            String explanation =
-                    "Fit "
-                            + fit
-                            + " — "
-                            + matched.size()
-                            + " of "
-                            + jobSkills.size()
+            // When the role lists no required skills, "0 of 0 matched" reads as a
+            // contradiction next to a high fit score — explain the basis instead.
+            String explanation = jobSkills.isEmpty()
+                    ? "Ranked on overall profile similarity — this role lists no required skills yet"
+                    : "Fit " + fit + " — " + matched.size() + " of " + jobSkills.size()
                             + " required skills matched";
             rows.add(new MatchRow(candidateId, name, headline, fit, explanation, matched, gaps));
         }

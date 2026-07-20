@@ -1,4 +1,5 @@
 import { useAnalyticsSummary } from '@/api/hooks'
+import { stageHue } from '@/lib/stages'
 import type { AnalyticsSummary, FunnelStage } from '@/api/types'
 import { percent } from '@/lib/format'
 
@@ -112,14 +113,17 @@ function Funnel({ stages }: { stages: FunnelStage[] }) {
         const conv = i === 0 ? 100 : (s.count / stages[i - 1].count) * 100
         return (
           <div key={s.stage} style={{ display: 'grid', gridTemplateColumns: '150px 1fr 56px', gap: 14, alignItems: 'center' }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink-1)' }}>{s.stage}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, fontWeight: 600, color: 'var(--ink-1)' }}>
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: stageHue(s.stage).fg, flexShrink: 0 }} />
+              {s.stage}
+            </div>
             <div style={{ position: 'relative', height: 30 }}>
               <div
                 style={{
                   position: 'absolute',
                   inset: 0,
                   width: `${pct}%`,
-                  background: 'var(--bofa-navy)',
+                  background: stageHue(s.stage).fg,
                   borderRadius: 'var(--ra-1)',
                   display: 'flex',
                   alignItems: 'center',
@@ -129,7 +133,6 @@ function Funnel({ stages }: { stages: FunnelStage[] }) {
                   fontWeight: 600,
                   fontFamily: 'var(--font-mono)',
                   minWidth: 44,
-                  opacity: 1 - i * 0.1,
                 }}
               >
                 {s.count.toLocaleString()}
@@ -261,7 +264,7 @@ export default function AnalyticsPage() {
                           </span>
                         </div>
                         <div className="progress">
-                          <i style={{ width: `${(count / total) * 100}%` }} />
+                          <i style={{ width: `${(count / total) * 100}%`, background: stageHue(stage).fg }} />
                         </div>
                       </div>
                     )

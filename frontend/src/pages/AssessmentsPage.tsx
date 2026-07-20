@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { defaultJobId } from '@/lib/jobs'
 import { useApplications, useAssessments, useJobs } from '@/api/hooks'
 import { date, percent } from '@/lib/format'
 import type { Assessment } from '@/api/types'
@@ -53,7 +54,7 @@ const isComplete = (s: string) => ['COMPLETED', 'PASSED'].includes(s.toUpperCase
 export default function AssessmentsPage() {
   const { data: jobs } = useJobs()
   const [jobId, setJobId] = useState<string>('')
-  const effectiveJobId = jobId || jobs?.[0]?.id
+  const effectiveJobId = jobId || defaultJobId(jobs)
 
   const { data: apps } = useApplications(effectiveJobId ? { jobId: effectiveJobId } : undefined)
   const [applicationId, setApplicationId] = useState<string>('')

@@ -37,6 +37,7 @@ import AnalyticsPage from './pages/AnalyticsPage'
 import CompliancePage from './pages/CompliancePage'
 import IntegrationsPage from './pages/IntegrationsPage'
 import AuditPage from './pages/AuditPage'
+import AdminPage from './pages/AdminPage'
 
 /** Redirect to Overview if the route's module has been turned off in config. */
 function RequireModule({ module, children }: { module: string; children: ReactNode }) {
@@ -74,6 +75,7 @@ function RecruiterApp() {
         <Route path="/compliance" element={m('compliance', <CompliancePage />)} />
         <Route path="/integrations" element={m('integrations', <IntegrationsPage />)} />
         <Route path="/audit" element={m('audit', <AuditPage />)} />
+        <Route path="/admin" element={m('admin', <AdminPage />)} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </AppShell>

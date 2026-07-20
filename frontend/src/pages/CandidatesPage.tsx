@@ -1,9 +1,14 @@
-import { useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
-import SlideOver from '../components/SlideOver'
+import { useEffect, useMemo, useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useCandidate, useCandidates, useJobInterviews } from '../api/hooks'
+import AriaConversations from '@/components/AriaConversations'
 import type { CandidateSummary } from '../api/types'
-import { date, initials } from '../lib/format'
+import { date, humanize, initials } from '../lib/format'
+
+// Split-view pilot: the candidate list docks left, the record lives on the
+// right — no overlay, no open/close ceremony. ↑/↓ moves the selection, the
+// detail tab stays put while you hop candidates, and ?sel= keeps the view
+// shareable. This is the app's drawer-replacement pattern for triage pages.
 
 const ivTime = (iso: string | null | undefined) => {
   if (!iso) return ''
@@ -52,51 +57,50 @@ function Fact({ label, children }: { label: string; children: React.ReactNode })
   )
 }
 
-type Tab = 'overview' | 'applications' | 'interviews'
+type Tab = 'overview' | 'applications' | 'interviews' | 'aria'
 
-function CandidateDrawer({ summary, onClose }: { summary: CandidateSummary; onClose: () => void }) {
+// ── Right pane: the live record ─────────────────────────────────────────────
+function CandidateDetailPane({ summary, tab, setTab }: {
+  summary: CandidateSummary
+  tab: Tab
+  setTab: (t: Tab) => void
+}) {
   const { data: c, isLoading } = useCandidate(summary.id)
   const skills = c?.skills ?? []
   const apps = c?.applications ?? []
   const appIds = useMemo(() => apps.map((a) => a.id), [apps])
   const { interviews, isLoading: ivLoading } = useJobInterviews(appIds)
   const jobByApp = useMemo(() => Object.fromEntries(apps.map((a) => [a.id, a.jobTitle])), [apps])
-
-  const [tab, setTab] = useState<Tab>('overview')
   const [note, setNote] = useState('')
 
   const tabs: { key: Tab; label: string; count?: number }[] = [
     { key: 'overview', label: 'Overview' },
     { key: 'applications', label: 'Applications', count: apps.length },
     { key: 'interviews', label: 'Interviews', count: interviews.length },
+    { key: 'aria', label: 'Aria chat' },
   ]
 
   return (
-    <SlideOver label={`${summary.name} details`} onClose={onClose} width={480}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, padding: '18px 20px 14px', borderBottom: '1px solid var(--line)' }}>
-        <div className="avatar" style={{ width: 46, height: 46, fontSize: 16 }}>
+    <div className="card" style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '13px 16px 11px', borderBottom: '1px solid var(--line)' }}>
+        <div className="avatar" style={{ width: 38, height: 38, fontSize: 13.5 }}>
           {initials(summary.name)}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontFamily: 'var(--font-display)', fontSize: 19, color: 'var(--ink-0)', lineHeight: 1.2 }}>
+          <div style={{ fontFamily: 'var(--font-display)', fontSize: 17.5, color: 'var(--ink-0)', lineHeight: 1.2 }}>
             {summary.name}
           </div>
           {summary.headline ? (
-            <div className="sub" style={{ marginTop: 3, fontSize: 12.5 }}>{summary.headline}</div>
+            <div className="sub" style={{ marginTop: 2, fontSize: 12 }}>{summary.headline}</div>
           ) : null}
-          <div style={{ display: 'flex', gap: 6, marginTop: 9 }}>
+          <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
             <span className={`badge ${lifecycleClass(summary.lifecycle)}`}>{summary.lifecycle}</span>
-            <span className="badge">{summary.source}</span>
+            <span className="badge">{humanize(summary.source)}</span>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close"
-          style={{ border: 0, background: 'none', cursor: 'pointer', fontSize: 20, lineHeight: 1, color: 'var(--ink-4)', padding: 2 }}
-        >
-          ×
-        </button>
+        <Link to={`/candidates/${summary.id}`} className="btn btn--outline btn--sm" style={{ flexShrink: 0 }}>
+          Open full record
+        </Link>
       </div>
 
       {/* Tab bar */}
@@ -109,8 +113,8 @@ function CandidateDrawer({ summary, onClose }: { summary: CandidateSummary; onCl
               border: 0,
               background: 'none',
               cursor: 'pointer',
-              padding: '11px 12px',
-              fontSize: 13,
+              padding: '9px 11px',
+              fontSize: 12.5,
               fontWeight: tab === t.key ? 600 : 500,
               color: tab === t.key ? 'var(--bofa-navy)' : 'var(--ink-4)',
               borderBottom: tab === t.key ? '2px solid var(--bofa-navy)' : '2px solid transparent',
@@ -123,7 +127,7 @@ function CandidateDrawer({ summary, onClose }: { summary: CandidateSummary; onCl
         ))}
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '13px 16px' }}>
         {tab === 'overview' && (
           <>
             <div className="eyebrow" style={{ marginBottom: 4 }}>Personal</div>
@@ -202,6 +206,10 @@ function CandidateDrawer({ summary, onClose }: { summary: CandidateSummary; onCl
           )
         )}
 
+        {tab === 'aria' && (
+          <AriaConversations apps={apps.map((a) => ({ id: a.id, jobTitle: a.jobTitle }))} />
+        )}
+
         {tab === 'interviews' && (
           ivLoading ? (
             <div style={{ fontSize: 12.5, color: 'var(--ink-4)' }}>Loading…</div>
@@ -236,20 +244,17 @@ function CandidateDrawer({ summary, onClose }: { summary: CandidateSummary; onCl
           )
         )}
       </div>
-
-      <div style={{ display: 'flex', gap: 8, padding: '14px 20px', borderTop: '1px solid var(--line)' }}>
-        <Link to={`/candidates/${summary.id}`} className="btn btn--primary btn--sm" style={{ flex: 1, textAlign: 'center' }}>
-          Open full profile
-        </Link>
-      </div>
-    </SlideOver>
+    </div>
   )
 }
 
+// ── Page: master list + detail pane ─────────────────────────────────────────
 export default function CandidatesPage() {
   const { data, isLoading, isError, refetch } = useCandidates()
   const [filter, setFilter] = useState('')
-  const [selected, setSelected] = useState<CandidateSummary | null>(null)
+  const [params, setParams] = useSearchParams()
+  const sel = params.get('sel')
+  const [tab, setTab] = useState<Tab>('overview')
 
   const rows = useMemo(() => {
     if (!data) return []
@@ -262,6 +267,33 @@ export default function CandidatesPage() {
     )
   }, [data, filter])
 
+  const selected = rows.find((c) => c.id === sel) ?? null
+  const setSel = (id: string) => setParams(id ? { sel: id } : {}, { replace: true })
+
+  // Land on the first visible candidate when nothing (valid) is selected.
+  useEffect(() => {
+    if (!selected && rows.length > 0) setSel(rows[0].id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, selected])
+
+  // ↑/↓ move the selection — the split view's superpower.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
+      const t = e.target as HTMLElement
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return
+      if (rows.length === 0) return
+      e.preventDefault()
+      const idx = rows.findIndex((c) => c.id === sel)
+      const next = e.key === 'ArrowDown' ? Math.min(idx + 1, rows.length - 1) : Math.max(idx - 1, 0)
+      setSel(rows[Math.max(next, 0)].id)
+      document.getElementById(`cand-${rows[Math.max(next, 0)].id}`)?.scrollIntoView({ block: 'nearest' })
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, sel])
+
   return (
     <div>
       <div className="page-head" style={{ marginBottom: 18 }}>
@@ -272,7 +304,7 @@ export default function CandidatesPage() {
         <div className="page-head__row">
           <div>
             <h1 style={{ fontSize: 28 }}>Candidates</h1>
-            <p className="sub">Everyone in the talent pool, across sources and lifecycle stages.</p>
+            <p className="sub">Everyone in the talent pool — click through or use ↑↓ to move between records.</p>
           </div>
           <div className="input-group" style={{ width: 280 }}>
             <input
@@ -308,62 +340,70 @@ export default function CandidatesPage() {
             No candidates in the pool yet.
           </div>
         </div>
-      ) : rows.length === 0 ? (
-        <div className="card">
-          <div className="card__body" style={{ padding: '48px 20px', textAlign: 'center', color: 'var(--ink-4)' }}>
-            No candidates match “{filter}”.
-          </div>
-        </div>
       ) : (
-        <div className="table-wrap">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Candidate</th>
-                <th>Location</th>
-                <th>Source</th>
-                <th>Lifecycle</th>
-                <th className="t-right">Apps</th>
-                <th>Top skills</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((c) => (
-                <tr key={c.id} onClick={() => setSelected(c)} style={{ cursor: 'pointer' }}>
-                  <td>
-                    <div className="who">
-                      <div className="avatar">{initials(c.name)}</div>
-                      <div>
-                        <div className="who__name" style={{ color: 'var(--bofa-navy)' }}>
-                          {c.name}
-                        </div>
-                        {c.headline ? <div className="who__sub">{c.headline}</div> : null}
-                      </div>
-                    </div>
-                  </td>
-                  <td className="t-muted">{c.location || '—'}</td>
-                  <td className="t-muted">{c.source || '—'}</td>
-                  <td>
-                    <span className={`badge ${lifecycleClass(c.lifecycle)}`}>{c.lifecycle}</span>
-                  </td>
-                  <td className="t-right t-num">{c.applicationCount}</td>
-                  <td>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                      {(c.topSkills ?? []).slice(0, 4).map((s) => (
-                        <span key={s} className="chip" style={{ cursor: 'default', padding: '4px 10px', fontSize: 12 }}>
-                          {s}
+        <div style={{ display: 'grid', gridTemplateColumns: '264px minmax(0, 1fr)', gap: 14, height: 'calc(100vh - 232px)', minHeight: 420 }}>
+          {/* Master list */}
+          <div className="card" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--line)' }}>
+              <span className="eyebrow">{rows.length} of {data.length} candidates</span>
+            </div>
+            <div style={{ flex: 1, overflowY: 'auto' }}>
+              {rows.length === 0 ? (
+                <div style={{ padding: '30px 14px', textAlign: 'center', fontSize: 12.5, color: 'var(--ink-4)' }}>
+                  No candidates match “{filter}”.
+                </div>
+              ) : (
+                rows.map((c) => {
+                  const active = c.id === sel
+                  return (
+                    <button
+                      key={c.id}
+                      id={`cand-${c.id}`}
+                      onClick={() => setSel(c.id)}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 10,
+                        width: '100%',
+                        textAlign: 'left',
+                        border: 0,
+                        cursor: 'pointer',
+                        font: 'inherit',
+                        padding: '7px 10px',
+                        background: active ? 'var(--navy-050)' : 'transparent',
+                        borderLeft: active ? '3px solid var(--bofa-navy)' : '3px solid transparent',
+                        borderBottom: '1px solid var(--line)',
+                      }}
+                    >
+                      <span className="avatar" style={{ width: 26, height: 26, fontSize: 10.5, flexShrink: 0 }}>{initials(c.name)}</span>
+                      <span style={{ flex: 1, minWidth: 0 }}>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontSize: 12.5, fontWeight: 600, color: active ? 'var(--bofa-navy)' : 'var(--ink-0)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {c.name}
+                          </span>
+                          <span className={`badge ${lifecycleClass(c.lifecycle)}`} style={{ flexShrink: 0 }}>{c.lifecycle}</span>
                         </span>
-                      ))}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                        <span style={{ display: 'block', fontSize: 11, color: 'var(--ink-4)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 1 }}>
+                          {c.headline || humanize(c.source)}
+                        </span>
+                      </span>
+                    </button>
+                  )
+                })
+              )}
+            </div>
+          </div>
+
+          {/* Detail pane */}
+          {selected ? (
+            <CandidateDetailPane key={selected.id} summary={selected} tab={tab} setTab={setTab} />
+          ) : (
+            <div className="card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ink-4)', fontSize: 13.5 }}>
+              Select a candidate to see their record.
+            </div>
+          )}
         </div>
       )}
-
-      {selected && <CandidateDrawer summary={selected} onClose={() => setSelected(null)} />}
     </div>
   )
 }

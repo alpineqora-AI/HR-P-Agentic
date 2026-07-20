@@ -13,11 +13,8 @@ Careers and Conv/backend/
 Careers and Conv/**/node_modules/
 Careers and Conv/**/dist/
 
-# Local theme/brand overrides (proprietary tokens & trademarked assets —
-# supplied at delivery, never committed). App falls back to placeholders.
+# Local theme overrides
 frontend/src/styles/*.local.css
-frontend/public/brand-logo.*
-frontend/public/brand-mark.*
 
 # Secrets / local config
 .env

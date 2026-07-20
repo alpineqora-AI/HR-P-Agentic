@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react'
+import { useStore } from '@/state/store'
 import { Link } from 'react-router-dom'
 import SlideOver from '../components/SlideOver'
 import { useCreateJob, useJobs } from '../api/hooks'
-import { money } from '../lib/format'
+import { humanize, money } from '../lib/format'
 import type { JobCreate, JobSummary } from '../api/types'
 
 const WORK_MODES = ['On-site', 'Hybrid', 'Remote']
@@ -20,6 +21,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 function NewJobForm({ onClose }: { onClose: () => void }) {
   const create = useCreateJob()
+  const { toastMsg } = useStore()
   const [f, setF] = useState<JobCreate>({
     title: '',
     department: '',
@@ -41,7 +43,7 @@ function NewJobForm({ onClose }: { onClose: () => void }) {
       location: f.location.trim(),
       family: f.family.trim() || f.department.trim(),
     }
-    create.mutate(payload, { onSuccess: onClose })
+    create.mutate(payload, { onSuccess: (j) => { toastMsg(`Job "${j.title}" created`); onClose() } })
   }
 
   return (
@@ -229,7 +231,7 @@ export default function JobsPage() {
                     </div>
                   </td>
                   <td className="t-muted">{j.location}</td>
-                  <td className="t-muted">{j.family}</td>
+                  <td className="t-muted">{humanize(j.family)}</td>
                   <td>
                     <span className={`badge ${statusBadgeClass(j.status)}`}>{j.status}</span>
                   </td>

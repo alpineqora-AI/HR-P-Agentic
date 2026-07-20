@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { rowAction } from '@/lib/a11y'
 import SlideOver from '@/components/SlideOver'
 import { useReferrals } from '@/api/hooks'
 import { date, money } from '@/lib/format'
@@ -130,7 +131,7 @@ export default function ReferralsPage() {
             </thead>
             <tbody>
               {data.map((r) => (
-                <tr key={r.id} onClick={() => setSelected(r)} style={{ cursor: 'pointer' }}>
+                <tr key={r.id} {...rowAction(() => setSelected(r))}>
                   <td className="t-strong">{r.referrerName}</td>
                   <td>{r.candidateName || '—'}</td>
                   <td className="t-muted">{r.jobTitle || '—'}</td>

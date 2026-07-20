@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { defaultJobId } from '@/lib/jobs'
+import { Link, useSearchParams } from 'react-router-dom'
 import SlideOver from '../components/SlideOver'
+import ConfirmButton from '../components/ConfirmButton'
+import { useStore } from '@/state/store'
 import {
   useAllPipelines,
   useApplicationConversation,
@@ -14,6 +17,7 @@ import {
 } from '../api/hooks'
 import type { ApplicationRow, JobSummary } from '../api/types'
 import { date, initials } from '../lib/format'
+import { stageHue } from '@/lib/stages'
 
 // Terminal stages folded into the collapsible "Closed" lane so the active board
 // fits the viewport without horizontal scrolling.
@@ -45,11 +49,6 @@ function stageClass(stage: string) {
   if (s.includes('reject') || s.includes('declin') || s.includes('withdraw')) return 'badge--neutral'
   if (s.includes('interview') || s.includes('screen')) return 'badge--info'
   return 'badge--neutral'
-}
-
-function isOpen(status: string) {
-  const s = status.toLowerCase()
-  return s === 'open' || s === 'active' || s === 'published'
 }
 
 function CandidateCard({ app, tag, onSelect }: { app: ApplicationRow; tag?: string; onSelect: (app: ApplicationRow) => void }) {
@@ -97,7 +96,9 @@ function StageStepper({ stages, current }: { stages: string[]; current: string }
               flex: 1,
               height: 4,
               borderRadius: 2,
-              background: idx >= 0 && i <= idx ? 'var(--bofa-navy)' : 'var(--app-sunken)',
+              // Completed segments wear their own stage color — the same hue
+              // language as the board columns.
+              background: idx >= 0 && i <= idx ? stageHue(s).fg : 'var(--app-sunken)',
             }}
           />
         ))}
@@ -186,17 +187,22 @@ function ScheduleInterview({ applicationId, jobId }: { applicationId: string; jo
 
 // Recruiter view of the candidate's Aria chat (collapsed until opened).
 function AriaTranscript({ applicationId }: { applicationId: string }) {
-  const [open, setOpen] = useState(false)
-  const { data: convo, isLoading } = useApplicationConversation(applicationId, open)
+  // Load eagerly so the toggle can advertise that a transcript exists.
+  const { data: convo, isLoading } = useApplicationConversation(applicationId, true)
+  const msgCount = convo?.messages?.length ?? 0
+  const [userToggled, setUserToggled] = useState<boolean | null>(null)
+  // Auto-expand when a conversation exists; the user's own toggle wins.
+  const open = userToggled ?? msgCount > 0
 
   return (
     <div style={{ marginTop: 18 }}>
       <button
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => setUserToggled(!open)}
         style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 0, cursor: 'pointer', padding: 0, color: 'var(--bofa-navy)', fontSize: 13, fontWeight: 600 }}
       >
         <span style={{ fontSize: 11 }}>{open ? '▾' : '▸'}</span>
         Aria chat transcript
+        {msgCount > 0 && <span className="badge badge--info">{msgCount} messages</span>}
       </button>
       {open && (
         <div style={{ marginTop: 10 }}>
@@ -245,6 +251,7 @@ function CandidateDrawer({
 }) {
   const { data: c, isLoading } = useCandidate(app.candidateId)
   const advance = useUpdateApplicationStage()
+  const { toastMsg } = useStore()
   const [stage, setStage] = useState(app.stage)
 
   useEffect(() => setStage(app.stage), [app.id, app.stage])
@@ -253,7 +260,19 @@ function CandidateDrawer({
   const nextStage = idx >= 0 && idx < stages.length - 1 ? stages[idx + 1] : null
 
   function move(to: string) {
-    advance.mutate({ id: app.id, stage: to }, { onSuccess: (row) => setStage(row.stage) })
+    advance.mutate(
+      { id: app.id, stage: to },
+      {
+        onSuccess: (row) => {
+          setStage(row.stage)
+          toastMsg(
+            to === 'REJECTED'
+              ? `${app.candidateName} rejected`
+              : `${app.candidateName} advanced to ${titleCase(row.stage)}`,
+          )
+        },
+      },
+    )
   }
 
   return (
@@ -354,9 +373,7 @@ function CandidateDrawer({
             Full profile
           </Link>
           {!CLOSED_STAGES.has(stage) && (
-            <button className="btn btn--ghost btn--sm" disabled={advance.isPending} onClick={() => move('REJECTED')}>
-              Reject
-            </button>
+            <ConfirmButton label="Reject" confirmLabel="Confirm reject?" onConfirm={() => move('REJECTED')} />
           )}
         </div>
     </SlideOver>
@@ -459,15 +476,18 @@ function PipelineMatrix({ jobs, onPick }: { jobs: JobSummary[]; onPick: (jobId: 
 
 export default function PipelinePage() {
   const { data: jobs, isLoading: jobsLoading } = useJobs()
-  const [jobId, setJobId] = useState<string | undefined>(undefined)
+  const [params, setParams] = useSearchParams()
+  const jobId = params.get('job') ?? undefined
+  // Keep the selected requisition in the URL so pipeline views are shareable.
+  const setJobId = (id: string | undefined) =>
+    setParams(id ? { job: id } : {}, { replace: true })
   const [closedOpen, setClosedOpen] = useState(false)
   const [selected, setSelected] = useState<ApplicationRow | null>(null)
   const [mode, setMode] = useState<'board' | 'matrix'>('board')
 
   useEffect(() => {
     if (jobId || !jobs || jobs.length === 0) return
-    const firstOpen = jobs.find((j) => isOpen(j.status)) ?? jobs[0]
-    setJobId(firstOpen.id)
+    setJobId(defaultJobId(jobs))
   }, [jobs, jobId])
 
   // Close the drawer when the requisition changes.
@@ -571,10 +591,20 @@ export default function PipelinePage() {
             </button>
           </div>
         </div>
-      ) : !columns || columns.length === 0 ? (
+      ) : !columns || columns.length === 0 || stageCols.every((c) => c.count === 0) ? (
         <div className="card">
-          <div className="card__body" style={{ padding: '48px 20px', textAlign: 'center', color: 'var(--ink-4)' }}>
-            No candidates in the pipeline {selectedJob ? `for ${selectedJob.title}` : ''} yet.
+          <div className="card__body" style={{ padding: '52px 20px', textAlign: 'center' }}>
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: 19, color: 'var(--ink-0)' }}>
+              No candidates in this pipeline yet
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--ink-4)', marginTop: 6 }}>
+              {selectedJob ? `${selectedJob.title} has no active applications.` : 'This requisition has no active applications.'}
+              {' '}Try AI Matching to surface people already in your database.
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 16 }}>
+              <Link className="btn btn--primary btn--sm" to="/matching">View AI matches</Link>
+              <button className="btn btn--outline btn--sm" onClick={() => setMode('matrix')}>See all pipelines</button>
+            </div>
           </div>
         </div>
       ) : (
@@ -588,18 +618,21 @@ export default function PipelinePage() {
               alignItems: 'start',
             }}
           >
-            {activeCols.map((col) => (
+            {activeCols.map((col) => {
+              const hue = stageHue(col.stage)
+              return (
               <div
                 key={col.stage}
-                style={{ background: 'var(--app-sunken)', borderRadius: 'var(--ra-3)', padding: 10, minWidth: 0 }}
+                style={{ background: 'var(--app-sunken)', borderRadius: 'var(--ra-3)', padding: 10, minWidth: 0, borderTop: `3px solid ${hue.fg}` }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, padding: '2px 4px 10px' }}>
-                  <span style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: '0.02em', color: 'var(--ink-2)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11.5, fontWeight: 700, letterSpacing: '0.02em', color: 'var(--ink-2)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: hue.fg, flexShrink: 0 }} />
                     {col.stage}
                   </span>
                   <span
                     className="t-num"
-                    style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--ink-4)', background: 'var(--app-panel)', borderRadius: 999, padding: '1px 8px' }}
+                    style={{ fontSize: 11.5, fontWeight: 600, color: hue.fg, background: hue.bg, borderRadius: 999, padding: '1px 8px' }}
                   >
                     {col.count}
                   </span>
@@ -612,7 +645,8 @@ export default function PipelinePage() {
                   )}
                 </div>
               </div>
-            ))}
+              )
+            })}
           </div>
 
           {/* Collapsible "Closed" lane — terminal stages folded away by default. */}

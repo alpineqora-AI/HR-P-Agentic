@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { defaultJobId } from '@/lib/jobs'
 import { useApplications, useJobs, useOnboarding } from '@/api/hooks'
 import { date } from '@/lib/format'
 import type { OnboardingTask } from '@/api/types'
@@ -98,7 +99,7 @@ function CategoryCard({ label, tasks }: { label: string; tasks: OnboardingTask[]
 export default function OnboardingPage() {
   const { data: jobs } = useJobs()
   const [jobId, setJobId] = useState<string>('')
-  const effectiveJobId = jobId || jobs?.[0]?.id
+  const effectiveJobId = jobId || defaultJobId(jobs)
 
   const { data: apps } = useApplications(effectiveJobId ? { jobId: effectiveJobId } : undefined)
   const [applicationId, setApplicationId] = useState<string>('')

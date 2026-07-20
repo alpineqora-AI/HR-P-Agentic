@@ -1,12 +1,15 @@
 import { useMemo, useState } from 'react'
+import { useStore } from '@/state/store'
 import SlideOver from '@/components/SlideOver'
 import { useCreateEvent, useEvents } from '@/api/hooks'
 import { date } from '@/lib/format'
 import type { EventRow } from '@/api/types'
+import { DISPLAY_TYPES, INTAKE_KEY, defaultIntakeForm, flattenIntake, normalizeIntake, type IntakeField, type IntakeForm } from './admin/FormBuilder'
 
 // Campus & hiring events, modeled on how Handshake / Yello / RippleMatch run them:
 // a conversion funnel (registered → attended → hires), event formats, and a
-// stepped creation flow (basics → sessions → registration → review).
+// stepped creation flow whose Details step renders the admin-designed intake
+// form (Admin → Forms), so orgs control what gets asked at event creation.
 
 const TYPE_OPTIONS = [
   { value: 'CAMPUS', label: 'Campus drive' },
@@ -114,6 +117,15 @@ function EventDetail({ e, onClose }: { e: EventRow; onClose: () => void }) {
           <FunnelStep label="Attended" value={e.attended} pct={rate(e.attended, e.registrations)} />
           <FunnelStep label="Hires" value={e.hires} pct={rate(e.hires, e.registrations)} />
         </div>
+
+        {readResponses(e.id).length > 0 && (
+          <div style={{ marginTop: 18 }}>
+            <div className="eyebrow" style={{ marginBottom: 4 }}>Intake details</div>
+            {readResponses(e.id).map((r) => (
+              <Fact key={r.label} label={r.label}>{r.value}</Fact>
+            ))}
+          </div>
+        )}
       </div>
       <div style={{ padding: '14px 20px', borderTop: '1px solid var(--line)', fontSize: 12, color: 'var(--ink-4)' }}>
         Sessions, registrants, and linked jobs appear here once the event runs.
@@ -156,12 +168,6 @@ type Draft = {
   location: string
   day: string
   time: string
-  groupSessions: number
-  oneOnOne: boolean
-  slotMins: number
-  capacity: string
-  qualifications: string
-  reminders: boolean
 }
 
 const EMPTY_DRAFT: Draft = {
@@ -171,30 +177,158 @@ const EMPTY_DRAFT: Draft = {
   location: '',
   day: '',
   time: '09:00',
-  groupSessions: 1,
-  oneOnOne: true,
-  slotMins: 15,
-  capacity: '',
-  qualifications: '',
-  reminders: true,
 }
 
-const STEPS = ['Basics', 'Sessions', 'Registration', 'Review']
+const STEPS = ['Basics', 'Details', 'Review']
+
+const RESPONSES_KEY = 'olivia.eventIntakeResponses'
+
+function readIntakeForm(): IntakeForm {
+  try {
+    const raw = localStorage.getItem(INTAKE_KEY)
+    if (raw) return normalizeIntake(JSON.parse(raw))
+  } catch { /* fall through */ }
+  return defaultIntakeForm()
+}
+
+type Answer = string | string[]
+
+function answerText(a: Answer | undefined): string {
+  if (a === undefined) return ''
+  return Array.isArray(a) ? a.join(', ') : a
+}
+
+/** Persist a created event's intake answers so the detail panel can show them. */
+function saveResponses(eventId: string, form: IntakeForm, answers: Record<string, Answer>) {
+  try {
+    const raw = localStorage.getItem(RESPONSES_KEY)
+    const all = raw ? JSON.parse(raw) : {}
+    all[eventId] = flattenIntake(form)
+      .filter((f) => !DISPLAY_TYPES.includes(f.type))
+      .filter((f) => answerText(answers[f.id]).trim() !== '')
+      .map((f) => ({ label: f.label, value: answerText(answers[f.id]) }))
+    localStorage.setItem(RESPONSES_KEY, JSON.stringify(all))
+  } catch { /* POC persistence — ignore quota errors */ }
+}
+
+function readResponses(eventId: string): { label: string; value: string }[] {
+  try {
+    const raw = localStorage.getItem(RESPONSES_KEY)
+    if (!raw) return []
+    return JSON.parse(raw)[eventId] ?? []
+  } catch {
+    return []
+  }
+}
+
+/** One intake field as a live wizard input. */
+function IntakeInput({ f, value, onChange }: { f: IntakeField; value: Answer | undefined; onChange: (v: Answer) => void }) {
+  const text = typeof value === 'string' ? value : ''
+  const list = Array.isArray(value) ? value : []
+  // Display blocks render content, no input.
+  if (f.type === 'header') {
+    return (
+      <div style={{ margin: '4px 0 0' }}>
+        <div style={{ fontFamily: 'var(--font-display)', fontSize: 16.5, color: 'var(--ink-0)' }}>{f.label || 'Section title'}</div>
+        {f.help ? <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 2 }}>{f.help}</div> : null}
+        <div style={{ borderTop: '1px solid var(--line)', marginTop: 8 }} />
+      </div>
+    )
+  }
+  if (f.type === 'image') {
+    return f.src
+      ? <img src={f.src} alt={f.label || 'Form image'} style={{ maxWidth: '100%', borderRadius: 'var(--ra-2)', border: '1px solid var(--line)' }} />
+      : <div style={{ border: '1px dashed var(--line)', borderRadius: 'var(--ra-2)', padding: '20px 12px', textAlign: 'center', fontSize: 12, color: 'var(--ink-5)' }}>🖼 Image</div>
+  }
+  const first = text.split(' ')[0] ?? ''
+  const last = text.split(' ').slice(1).join(' ')
+  return (
+    <div>
+      <div className="eyebrow" style={{ marginBottom: 6 }}>
+        {f.label}{f.required ? <span style={{ color: 'var(--bofa-red)' }}> *</span> : null}
+      </div>
+      {f.help ? <div style={{ fontSize: 11.5, color: 'var(--ink-5)', margin: '-2px 0 6px' }}>{f.help}</div> : null}
+      {f.type === 'email' && <input className="input" type="email" value={text} placeholder="name@example.com" onChange={(e) => onChange(e.target.value)} />}
+      {f.type === 'phone' && <input className="input" type="tel" value={text} placeholder="(555) 000-0000" onChange={(e) => onChange(e.target.value)} />}
+      {f.type === 'fullname' && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          <input className="input" placeholder="First name" value={first} onChange={(e) => onChange(`${e.target.value} ${last}`.trim())} />
+          <input className="input" placeholder="Last name" value={last} onChange={(e) => onChange(`${first} ${e.target.value}`.trim())} />
+        </div>
+      )}
+      {f.type === 'file' && (
+        <input className="input" type="file" style={{ padding: 7 }} onChange={(e) => onChange(e.target.files?.[0]?.name ?? '')} />
+      )}
+      {f.type === 'short' && <input className="input" value={text} onChange={(e) => onChange(e.target.value)} />}
+      {f.type === 'long' && <textarea className="input" rows={3} value={text} onChange={(e) => onChange(e.target.value)} style={{ resize: 'vertical' }} />}
+      {f.type === 'number' && <input className="input" type="number" value={text} onChange={(e) => onChange(e.target.value)} style={{ width: 160 }} />}
+      {f.type === 'date' && <input className="input" type="date" value={text} onChange={(e) => onChange(e.target.value)} style={{ width: 190 }} />}
+      {f.type === 'yesno' && (
+        <div className="segmented" role="group" aria-label={f.label}>
+          {(['Yes', 'No'] as const).map((v) => (
+            <button key={v} aria-pressed={text === v} onClick={() => onChange(v)}>{v}</button>
+          ))}
+        </div>
+      )}
+      {(f.type === 'single' || f.type === 'dropdown') && (
+        <select className="select" value={text} onChange={(e) => onChange(e.target.value)}>
+          <option value="">Choose…</option>
+          {(f.options ?? []).map((o) => <option key={o} value={o}>{o}</option>)}
+        </select>
+      )}
+      {f.type === 'typeahead' && (
+        <>
+          <input className="input" list={`wiz-ta-${f.id}`} value={text} placeholder="Start typing…" onChange={(e) => onChange(e.target.value)} />
+          <datalist id={`wiz-ta-${f.id}`}>
+            {(f.options ?? []).map((o) => <option key={o} value={o} />)}
+          </datalist>
+        </>
+      )}
+      {f.type === 'multi' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {(f.options ?? []).map((o) => (
+            <label key={o} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--ink-1)', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={list.includes(o)}
+                onChange={(e) => onChange(e.target.checked ? [...list, o] : list.filter((x) => x !== o))}
+              />
+              {o}
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 function CreateEventWizard({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const create = useCreateEvent()
+  const { toastMsg } = useStore()
   const [step, setStep] = useState(0)
   const [d, setD] = useState<Draft>(EMPTY_DRAFT)
   const set = (patch: Partial<Draft>) => setD((prev) => ({ ...prev, ...patch }))
+  // The admin-designed intake (Admin → Forms), snapshotted when the wizard opens.
+  const [intake] = useState<IntakeForm>(readIntakeForm)
+  const [answers, setAnswers] = useState<Record<string, Answer>>({})
 
   const basicsValid = d.name.trim().length > 0 && d.day.length > 0
+  const intakeFields = flattenIntake(intake)
+  const detailsValid = intakeFields.every((f) => DISPLAY_TYPES.includes(f.type) || !f.required || answerText(answers[f.id]).trim() !== '')
   const isLast = step === STEPS.length - 1
 
   function submit() {
     const startsAt = new Date(`${d.day}T${d.time || '09:00'}:00`).toISOString()
     create.mutate(
       { name: d.name.trim(), type: d.type, location: d.location.trim(), startsAt },
-      { onSuccess: () => { onCreated(); onClose() } },
+      {
+        onSuccess: (ev) => {
+          saveResponses(ev.id, intake, answers)
+          toastMsg(`Event "${d.name.trim()}" created`)
+          onCreated()
+          onClose()
+        },
+      },
     )
   }
 
@@ -248,53 +382,42 @@ function CreateEventWizard({ onClose, onCreated }: { onClose: () => void; onCrea
         )}
 
         {step === 1 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <p className="sub" style={{ fontSize: 12.5, margin: 0 }}>How will you meet candidates at this event?</p>
-            <Field label="Group sessions">
-              <input className="input" type="number" min={0} value={d.groupSessions} onChange={(e) => set({ groupSessions: Number(e.target.value) })} />
-            </Field>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13.5, color: 'var(--ink-1)' }}>
-              <input type="checkbox" checked={d.oneOnOne} onChange={(e) => set({ oneOnOne: e.target.checked })} />
-              Offer 1:1 sessions with recruiters
-            </label>
-            {d.oneOnOne && (
-              <Field label="1:1 slot length">
-                <select className="select" value={d.slotMins} onChange={(e) => set({ slotMins: Number(e.target.value) })}>
-                  {[10, 15, 20, 30].map((m) => <option key={m} value={m}>{m} min</option>)}
-                </select>
-              </Field>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {intakeFields.length === 0 ? (
+              <p className="sub" style={{ fontSize: 12.5, margin: 0 }}>
+                No custom intake fields are configured. Admins can design this step under Admin → Forms.
+              </p>
+            ) : (
+              intake.rows.map((row) => (
+                <div key={row.id} style={{ display: 'grid', gridTemplateColumns: `repeat(${row.slots.length}, minmax(0, 1fr))`, gap: 12 }}>
+                  {row.slots.map((f, i) =>
+                    f ? (
+                      <IntakeInput key={f.id} f={f} value={answers[f.id]} onChange={(v) => setAnswers((prev) => ({ ...prev, [f.id]: v }))} />
+                    ) : (
+                      <span key={`gap-${i}`} />
+                    ),
+                  )}
+                </div>
+              ))
             )}
           </div>
         )}
 
         {step === 2 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <Field label="Capacity (optional)">
-              <input className="input" type="number" min={0} value={d.capacity} onChange={(e) => set({ capacity: e.target.value })} placeholder="No limit" />
-            </Field>
-            <Field label="Qualification filters">
-              <textarea className="input" rows={3} value={d.qualifications} onChange={(e) => set({ qualifications: e.target.value })} placeholder="e.g. Graduating 2026 · CS, CE majors · GPA ≥ 3.0" style={{ resize: 'vertical', fontFamily: 'inherit' }} />
-            </Field>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13.5, color: 'var(--ink-1)' }}>
-              <input type="checkbox" checked={d.reminders} onChange={(e) => set({ reminders: e.target.checked })} />
-              Send automated reminders + check-in
-            </label>
-          </div>
-        )}
-
-        {step === 3 && (
           <div>
             <Fact label="Name">{d.name || '—'}</Fact>
             <Fact label="Type">{typeLabel(d.type)}</Fact>
             <Fact label="Format">{d.format}</Fact>
             <Fact label={d.format === 'Virtual' ? 'Link' : 'Location'}>{d.location || '—'}</Fact>
             <Fact label="When">{d.day ? `${d.day} ${d.time}` : '—'}</Fact>
-            <Fact label="Sessions">{d.groupSessions} group{d.oneOnOne ? ` · 1:1 ${d.slotMins}m` : ''}</Fact>
-            <Fact label="Capacity">{d.capacity || 'No limit'}</Fact>
-            <Fact label="Reminders">{d.reminders ? 'On' : 'Off'}</Fact>
+            {intakeFields
+              .filter((f) => !DISPLAY_TYPES.includes(f.type))
+              .filter((f) => answerText(answers[f.id]).trim() !== '')
+              .map((f) => (
+                <Fact key={f.id} label={f.label}>{answerText(answers[f.id])}</Fact>
+              ))}
             <div style={{ fontSize: 11.5, color: 'var(--ink-4)', marginTop: 12, lineHeight: 1.5 }}>
-              The event is created now with its basics. Sessions, capacity, and registration rules are captured for planning and
-              will sync to the event once server-side scheduling is enabled.
+              The event is created with its basics; intake details are kept with the event record for planning and reporting.
             </div>
           </div>
         )}
@@ -308,7 +431,7 @@ function CreateEventWizard({ onClose, onCreated }: { onClose: () => void; onCrea
         {!isLast ? (
           <button
             className="btn btn--primary btn--sm"
-            disabled={step === 0 && !basicsValid}
+            disabled={(step === 0 && !basicsValid) || (step === 1 && !detailsValid)}
             onClick={() => setStep((s) => s + 1)}
           >
             Next
