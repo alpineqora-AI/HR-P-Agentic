@@ -1,4 +1,4 @@
-# Olivia — build conventions & API contract
+# TA Portal — build conventions & API contract
 
 This is the single source of truth that keeps the backend and frontend coherent.
 Every agent building a slice MUST follow this.
@@ -10,7 +10,7 @@ Reference implementation to copy patterns from (read these for exact style):
 - Frontend page: `…/VMS/frontend/src/pages/SuppliersPage.tsx`; api: `…/VMS/frontend/src/api/{client,hooks,types}.ts`
 
 Backend rules:
-- Package root `com.olivia`. Domain packages under `com.olivia.domain.<area>`; controllers + DTO records under `com.olivia.api`.
+- Package root `com.taportal`. Domain packages under `com.taportal.domain.<area>`; controllers + DTO records under `com.taportal.api`.
 - **Entities are FLAT** (Lombok `@Getter @NoArgsConstructor @AllArgsConstructor`, `@Setter` per mutable field). Use JPA `@Enumerated(EnumType.STRING)` for enums, `@GeneratedValue(strategy = GenerationType.UUID)` for ids. **Do NOT use `@ManyToOne`/`@OneToMany` across aggregates** — reference other aggregates by `UUID` column field (e.g. `jobId`), exactly like VMS. This keeps modules independent.
 - Column names: match `V1__schema.sql` exactly (snake_case via `@Column(name="…")`). `created_at`/`updated_at` via `@CreationTimestamp`/`@UpdateTimestamp`.
 - Repositories: `extends JpaRepository<Entity, UUID>`; add derived queries as needed.
@@ -40,10 +40,10 @@ Recruiter/ATS:
 - Engagement: `GET /pools`, `GET /campaigns`, `GET /referrals`, `GET /events`, `GET /surveys`, `GET /copilot` + `POST /copilot/generate`
 - Platform: `GET /integrations`, `GET /compliance/bias`, `GET /audit`, `GET /analytics/summary`, `GET /analytics/metrics?key=`
 
-Candidate-facing (the Olivia experience):
+Candidate-facing (the Aria experience):
 - `GET /careers/jobs` (public open jobs + summary), `GET /careers/jobs/{id}` (detail + immersive preview)
-- `POST /chat/start` {jobId, channel, language} → conversation + first Olivia message
-- `POST /chat/{conversationId}/reply` {text} → next Olivia message(s) + state (advances apply → knockout screen → schedule). This is the **scripted, LLM-ready** engine.
+- `POST /chat/start` {jobId, channel, language} → conversation + first Aria message
+- `POST /chat/{conversationId}/reply` {text} → next Aria message(s) + state (advances apply → knockout screen → schedule). This is the **scripted, LLM-ready** engine.
 - `GET /chat/{conversationId}` → full transcript
 
 ## DTO shapes (mirror exactly in types.ts)
@@ -79,10 +79,29 @@ ChatMessage  { id, sender, body, intent, createdAt }
 ChatState    { conversationId, status, step, messages: ChatMessage[], options?: string[], applicationId? }
 ```
 
-## Olivia conversation engine (scripted, LLM-ready)
+## Aria conversation engine (scripted, LLM-ready)
 
 A `ConversationEngine` service drives the candidate chat deterministically, with a single
 seam (`AssistantBrain` interface) so a Claude-backed implementation can be dropped in later
 without touching the controller. Flow/state machine:
 
 `GREETING → COLLECT_PROFILE (name/email/phone) → KNOCKOUT (ask each knockout_question in order, evaluate disqualify rule) → [if passed] OFFER_SCHEDULE (present interview_slots, book one → create interview) → DONE` (creates candidate + application, advances stage APPLIED→SCREENED→INTERVIEW). On knockout failure → polite decline, stage REJECTED. Each reply returns the next message(s) + `step` + optional quick-reply `options`.
+
+## Error contract (GlobalExceptionHandler)
+
+Every failed request returns one envelope, translated by `api/GlobalExceptionHandler`
+(three-tier rule: no framework or database detail reaches the client):
+
+```json
+{ "code": "BUSINESS_RULE_VIOLATION", "message": "Required question has no answer: School", "fieldErrors": { "email": "must not be blank" } }
+```
+
+| Status | code | When |
+| --- | --- | --- |
+| 400 | `VALIDATION_ERROR` | Bean Validation on DTOs (`fieldErrors` populated) or malformed input |
+| 404 | `NOT_FOUND` | Missing aggregate (service `EntityNotFoundException` / 404 RSE) |
+| 409 | `CONFLICT` | Duplicates & races: service checks, DB unique constraints, optimistic locks |
+| 422 | `BUSINESS_RULE_VIOLATION` | Service-layer rule rejections (form logic, workflow state) |
+| 500 | `INTERNAL_ERROR` | Unexpected — logged server-side, generic message only |
+
+Clients should read `message` for display and `code` for branching.

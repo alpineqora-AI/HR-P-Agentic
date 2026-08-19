@@ -78,8 +78,8 @@ export default function SurveysPage() {
         </div>
         <h1>Surveys</h1>
         <p className="sub">
-          Listen at every stage. Pulse surveys capture candidate sentiment as they move through the funnel, so you can fix
-          friction before it costs you talent.
+          Candidate-sentiment responses, captured in one place. Surveys are authored and sent from the bank's survey
+          platform; results flow in here (via Integrations) so sentiment sits next to the funnel it describes.
         </p>
       </div>
 

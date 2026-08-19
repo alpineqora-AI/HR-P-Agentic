@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useStore } from '@/state/store'
 import SlideOver from '@/components/SlideOver'
-import { useCreateEvent, useEvents } from '@/api/hooks'
+import { useCreateEvent, useEvents, useEventRoster, useRegisterAttendee, useRegistrationTransition, useSchools, useFormResponses, useSubmitFormResponse, useFormDefById, useFormsList } from '@/api/hooks'
 import { date } from '@/lib/format'
-import type { EventRow } from '@/api/types'
-import { DISPLAY_TYPES, INTAKE_KEY, defaultIntakeForm, flattenIntake, normalizeIntake, type IntakeField, type IntakeForm } from './admin/FormBuilder'
+import type { EventRow, EventRegistration } from '@/api/types'
+import { DISPLAY_TYPES, fieldVisible, INTAKE_KEY, defaultIntakeForm, flattenIntake, normalizeIntake, type IntakeField, type IntakeForm } from './admin/FormBuilder'
+import { IntakeInput, answerText, type Answer } from './admin/IntakeInput'
 
 // Campus & hiring events, modeled on how Handshake / Yello / RippleMatch run them:
 // a conversion funnel (registered → attended → hires), event formats, and a
@@ -18,13 +19,9 @@ const TYPE_OPTIONS = [
   { value: 'WEBINAR', label: 'Webinar / info session' },
 ]
 
-function typeBadge(type: string) {
-  const key = type.toUpperCase()
-  if (key === 'CAMPUS') return 'badge--purple'
-  if (key === 'CAREER_FAIR' || key === 'FAIR') return 'badge--info'
-  if (key === 'HIRING_EVENT' || key === 'HIRING') return 'badge--ok'
-  if (key === 'WEBINAR' || key === 'VIRTUAL') return 'badge--warn'
-  return 'badge'
+function typeBadge(_type: string) {
+  // Event type is a category, not a state — no color.
+  return ''
 }
 
 function typeLabel(type: string) {
@@ -40,6 +37,23 @@ function formatOf(e: EventRow) {
 
 const rate = (num: number, den: number) => (den > 0 ? Math.round((num / den) * 100) : 0)
 const isUpcoming = (iso: string) => new Date(iso).getTime() >= Date.now()
+
+/** "2:00–4:00 PM EST" in the event's own timezone. */
+const timeRange = (e: Pick<EventRow, 'startsAt' | 'endsAt' | 'timezone'>) => {
+  const tz = e.timezone || 'America/New_York'
+  const fmt = (iso: string, withZone: boolean) =>
+    new Date(iso).toLocaleTimeString('en-US', {
+      timeZone: tz, hour: 'numeric', minute: '2-digit', ...(withZone ? { timeZoneName: 'short' } : {}),
+    })
+  return e.endsAt ? `${fmt(e.startsAt, false)}–${fmt(e.endsAt, true)}` : fmt(e.startsAt, true)
+}
+
+const approvalBadge = (s: string | null) =>
+  s === 'PENDING' ? (
+    <span className="badge badge--warn">Pending approval</span>
+  ) : s === 'REJECTED' ? (
+    <span className="badge badge--danger">Rejected</span>
+  ) : null
 
 function StatTile({ label, value, meta }: { label: string; value: string | number; meta?: string }) {
   return (
@@ -94,6 +108,17 @@ function Meter({ label, pct, color }: { label: string; pct: number; color: strin
 }
 
 function EventDetail({ e, onClose }: { e: EventRow; onClose: () => void }) {
+  const { data: serverResponses } = useFormResponses('EVENT', e.id)
+  const intakeDetails = useMemo(() => {
+    const fromServer = (serverResponses ?? []).flatMap((r) => {
+      try {
+        return JSON.parse(r.answers) as { label: string; value: string }[]
+      } catch {
+        return []
+      }
+    })
+    return fromServer.length > 0 ? fromServer : readResponses(e.id)
+  }, [serverResponses, e.id])
   return (
     <SlideOver label={`${e.name} details`} onClose={onClose} width={440}>
       <div style={{ padding: '18px 20px 16px', borderBottom: '1px solid var(--line)' }}>
@@ -107,9 +132,12 @@ function EventDetail({ e, onClose }: { e: EventRow; onClose: () => void }) {
         </div>
       </div>
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
-        <Fact label="When">{date(e.startsAt)}</Fact>
+        <Fact label="When">{`${date(e.startsAt)} · ${timeRange(e)}`}</Fact>
         <Fact label={formatOf(e) === 'Virtual' ? 'Link' : 'Location'}>{e.location || '—'}</Fact>
-        <Fact label="Status">{isUpcoming(e.startsAt) ? 'Upcoming' : 'Past'}</Fact>
+        <Fact label="Status">
+          {isUpcoming(e.startsAt) ? 'Upcoming' : 'Past'}
+          {e.approvalStatus === 'PENDING' ? ' · awaiting approval' : e.approvalStatus === 'REJECTED' ? ' · rejected' : ''}
+        </Fact>
 
         <div style={{ marginTop: 18 }}>
           <div className="eyebrow" style={{ marginBottom: 8 }}>Conversion funnel</div>
@@ -118,19 +146,156 @@ function EventDetail({ e, onClose }: { e: EventRow; onClose: () => void }) {
           <FunnelStep label="Hires" value={e.hires} pct={rate(e.hires, e.registrations)} />
         </div>
 
-        {readResponses(e.id).length > 0 && (
+        {intakeDetails.length > 0 && (
           <div style={{ marginTop: 18 }}>
             <div className="eyebrow" style={{ marginBottom: 4 }}>Intake details</div>
-            {readResponses(e.id).map((r) => (
+            {intakeDetails.map((r) => (
               <Fact key={r.label} label={r.label}>{r.value}</Fact>
             ))}
           </div>
         )}
-      </div>
-      <div style={{ padding: '14px 20px', borderTop: '1px solid var(--line)', fontSize: 12, color: 'var(--ink-4)' }}>
-        Sessions, registrants, and linked jobs appear here once the event runs.
+
+        <RegistrationQr eventId={e.id} />
+
+        <Roster eventId={e.id} />
       </div>
     </SlideOver>
+  )
+}
+
+/* The QR block recruiters print for the booth banner: scanning opens the
+   shell-less registration page (form or Aria chat — student's choice).
+   QR image comes from api.qrserver.com for the POC; swap for a local
+   generator at delivery if offline rendering is required. */
+function RegistrationQr({ eventId }: { eventId: string }) {
+  const url = `${window.location.origin}/register/${eventId}`
+  const qr = `https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent(url)}`
+  const [copied, setCopied] = useState(false)
+  return (
+    <div style={{ marginTop: 18 }}>
+      <div className="eyebrow" style={{ marginBottom: 8 }}>Registration QR · booth banner</div>
+      <div style={{ display: 'flex', gap: 14, alignItems: 'center', padding: '12px 14px', border: '1px solid var(--line)', borderRadius: 'var(--ra-2)' }}>
+        <img src={qr} alt="Registration QR code" width={96} height={96} style={{ borderRadius: 6, border: '1px solid var(--line)' }} />
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 12.5, color: 'var(--ink-2)', wordBreak: 'break-all' }}>{url}</div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <button className="btn btn--outline btn--sm" style={{ fontSize: 11.5 }}
+              onClick={() => { navigator.clipboard?.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 1500) }}>
+              {copied ? 'Copied!' : 'Copy link'}
+            </button>
+            <a className="btn btn--outline btn--sm" style={{ fontSize: 11.5 }} href={url} target="_blank" rel="noreferrer">Open</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* The live roster: every student as a real row (and a real candidate) —
+   register/walk-in at the booth, check in, mark no-shows. The funnel above is
+   computed from these rows. */
+function Roster({ eventId }: { eventId: string }) {
+  const { data: roster, isLoading } = useEventRoster(eventId)
+  const { data: schools } = useSchools()
+  const transition = useRegistrationTransition()
+  const register = useRegisterAttendee()
+  const [adding, setAdding] = useState(false)
+  const [form, setForm] = useState({ name: '', email: '', schoolId: '', major: '', gradYear: '' })
+  const btn = { fontSize: 11.5, padding: '2px 8px' } as const
+
+  const statusBadge = (s: string) =>
+    s === 'CHECKED_IN' ? 'badge--ok' : s === 'NO_SHOW' ? 'badge--danger' : 'badge--info'
+
+  const submit = () =>
+    register.mutate(
+      {
+        eventId,
+        input: {
+          name: form.name,
+          email: form.email,
+          schoolId: form.schoolId || undefined,
+          major: form.major || undefined,
+          gradYear: form.gradYear ? Number(form.gradYear) : undefined,
+          walkIn: true,
+        },
+      },
+      { onSuccess: () => { setAdding(false); setForm({ name: '', email: '', schoolId: '', major: '', gradYear: '' }) } },
+    )
+
+  return (
+    <div style={{ marginTop: 18 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <span className="eyebrow">Roster{roster ? ` · ${roster.length}` : ''}</span>
+        <button className="btn btn--outline btn--sm" style={btn} onClick={() => setAdding((v) => !v)}>
+          {adding ? 'Cancel' : 'Add walk-in'}
+        </button>
+      </div>
+
+      {adding && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '10px 12px', border: '1px solid var(--line)', borderRadius: 'var(--ra-2)', marginBottom: 10 }}>
+          <input className="input" placeholder="Full name" value={form.name}
+            onChange={(ev) => setForm({ ...form, name: ev.target.value })} />
+          <input className="input" placeholder="Email" value={form.email}
+            onChange={(ev) => setForm({ ...form, email: ev.target.value })} />
+          <select className="select" value={form.schoolId}
+            onChange={(ev) => setForm({ ...form, schoolId: ev.target.value })}>
+            <option value="">School…</option>
+            {(schools ?? []).map((sc) => (
+              <option key={sc.id} value={sc.id}>{sc.name}</option>
+            ))}
+          </select>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input className="input" placeholder="Major" value={form.major}
+              onChange={(ev) => setForm({ ...form, major: ev.target.value })} />
+            <input className="input" placeholder="Grad year" style={{ width: 110 }} value={form.gradYear}
+              onChange={(ev) => setForm({ ...form, gradYear: ev.target.value })} />
+          </div>
+          <button className="btn btn--primary btn--sm" disabled={register.isPending || !form.name || !form.email} onClick={submit}>
+            {register.isPending ? 'Adding…' : 'Add & check in'}
+          </button>
+          {register.isError && (
+            <span style={{ fontSize: 12, color: 'var(--c-red, #c41230)' }}>
+              {(register.error as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Could not add — already registered?'}
+            </span>
+          )}
+        </div>
+      )}
+
+      {isLoading ? (
+        <div className="muted" style={{ fontSize: 12.5 }}>Loading roster…</div>
+      ) : !roster || roster.length === 0 ? (
+        <div className="muted" style={{ fontSize: 12.5 }}>
+          No registrations yet — they'll appear here as students sign up (or add walk-ins at the booth).
+        </div>
+      ) : (
+        roster.map((r: EventRegistration) => (
+          <div key={r.id} style={{ padding: '10px 0', borderBottom: '1px solid var(--line)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+              <span className="t-strong" style={{ fontSize: 13 }}>{r.name}</span>
+              <span className={`badge ${statusBadge(r.status)}`} style={{ flexShrink: 0 }}>
+                {r.status === 'CHECKED_IN' ? 'Checked in' : r.status === 'NO_SHOW' ? 'No-show' : 'Registered'}
+              </span>
+            </div>
+            <div className="muted" style={{ fontSize: 11.5, margin: '2px 0 6px' }}>
+              {[r.schoolName, r.major, r.gradYear ? `'${String(r.gradYear).slice(-2)}` : null].filter(Boolean).join(' · ') || r.email}
+              {r.source === 'WALK_IN' && <span> · walk-in</span>}
+            </div>
+            {r.status === 'REGISTERED' && (
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button className="btn btn--outline btn--sm" style={btn} disabled={transition.isPending}
+                  onClick={() => transition.mutate({ registrationId: r.id, status: 'CHECKED_IN' })}>
+                  Check in
+                </button>
+                <button className="btn btn--outline btn--sm" style={btn} disabled={transition.isPending}
+                  onClick={() => transition.mutate({ registrationId: r.id, status: 'NO_SHOW' })}>
+                  No-show
+                </button>
+              </div>
+            )}
+          </div>
+        ))
+      )}
+    </div>
   )
 }
 
@@ -168,6 +333,27 @@ type Draft = {
   location: string
   day: string
   time: string
+  endTime: string
+  timezone: string
+  flagged: boolean
+}
+
+/** Event timezones offered in the wizard (IANA zone → label). */
+const TIMEZONES: { value: string; label: string }[] = [
+  { value: 'America/New_York', label: 'Eastern (ET)' },
+  { value: 'America/Chicago', label: 'Central (CT)' },
+  { value: 'America/Denver', label: 'Mountain (MT)' },
+  { value: 'America/Los_Angeles', label: 'Pacific (PT)' },
+  { value: 'Europe/London', label: 'UK (GMT/BST)' },
+  { value: 'UTC', label: 'UTC' },
+]
+
+/** "day + hh:mm in IANA zone" → absolute ISO instant (offset derived per-date, DST-safe). */
+function zonedToIso(day: string, time: string, tz: string): string {
+  const naive = new Date(`${day}T${time}:00Z`)
+  const inTz = new Date(naive.toLocaleString('en-US', { timeZone: tz }))
+  const inUtc = new Date(naive.toLocaleString('en-US', { timeZone: 'UTC' }))
+  return new Date(naive.getTime() + (inUtc.getTime() - inTz.getTime())).toISOString()
 }
 
 const EMPTY_DRAFT: Draft = {
@@ -177,11 +363,14 @@ const EMPTY_DRAFT: Draft = {
   location: '',
   day: '',
   time: '09:00',
+  endTime: '11:00',
+  timezone: 'America/New_York',
+  flagged: false,
 }
 
 const STEPS = ['Basics', 'Details', 'Review']
 
-const RESPONSES_KEY = 'olivia.eventIntakeResponses'
+const RESPONSES_KEY = 'taportal.eventIntakeResponses'
 
 function readIntakeForm(): IntakeForm {
   try {
@@ -191,12 +380,6 @@ function readIntakeForm(): IntakeForm {
   return defaultIntakeForm()
 }
 
-type Answer = string | string[]
-
-function answerText(a: Answer | undefined): string {
-  if (a === undefined) return ''
-  return Array.isArray(a) ? a.join(', ') : a
-}
 
 /** Persist a created event's intake answers so the detail panel can show them. */
 function saveResponses(eventId: string, form: IntakeForm, answers: Record<string, Answer>) {
@@ -222,107 +405,67 @@ function readResponses(eventId: string): { label: string; value: string }[] {
 }
 
 /** One intake field as a live wizard input. */
-function IntakeInput({ f, value, onChange }: { f: IntakeField; value: Answer | undefined; onChange: (v: Answer) => void }) {
-  const text = typeof value === 'string' ? value : ''
-  const list = Array.isArray(value) ? value : []
-  // Display blocks render content, no input.
-  if (f.type === 'header') {
-    return (
-      <div style={{ margin: '4px 0 0' }}>
-        <div style={{ fontFamily: 'var(--font-display)', fontSize: 16.5, color: 'var(--ink-0)' }}>{f.label || 'Section title'}</div>
-        {f.help ? <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 2 }}>{f.help}</div> : null}
-        <div style={{ borderTop: '1px solid var(--line)', marginTop: 8 }} />
-      </div>
-    )
-  }
-  if (f.type === 'image') {
-    return f.src
-      ? <img src={f.src} alt={f.label || 'Form image'} style={{ maxWidth: '100%', borderRadius: 'var(--ra-2)', border: '1px solid var(--line)' }} />
-      : <div style={{ border: '1px dashed var(--line)', borderRadius: 'var(--ra-2)', padding: '20px 12px', textAlign: 'center', fontSize: 12, color: 'var(--ink-5)' }}>🖼 Image</div>
-  }
-  const first = text.split(' ')[0] ?? ''
-  const last = text.split(' ').slice(1).join(' ')
-  return (
-    <div>
-      <div className="eyebrow" style={{ marginBottom: 6 }}>
-        {f.label}{f.required ? <span style={{ color: 'var(--bofa-red)' }}> *</span> : null}
-      </div>
-      {f.help ? <div style={{ fontSize: 11.5, color: 'var(--ink-5)', margin: '-2px 0 6px' }}>{f.help}</div> : null}
-      {f.type === 'email' && <input className="input" type="email" value={text} placeholder="name@example.com" onChange={(e) => onChange(e.target.value)} />}
-      {f.type === 'phone' && <input className="input" type="tel" value={text} placeholder="(555) 000-0000" onChange={(e) => onChange(e.target.value)} />}
-      {f.type === 'fullname' && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-          <input className="input" placeholder="First name" value={first} onChange={(e) => onChange(`${e.target.value} ${last}`.trim())} />
-          <input className="input" placeholder="Last name" value={last} onChange={(e) => onChange(`${first} ${e.target.value}`.trim())} />
-        </div>
-      )}
-      {f.type === 'file' && (
-        <input className="input" type="file" style={{ padding: 7 }} onChange={(e) => onChange(e.target.files?.[0]?.name ?? '')} />
-      )}
-      {f.type === 'short' && <input className="input" value={text} onChange={(e) => onChange(e.target.value)} />}
-      {f.type === 'long' && <textarea className="input" rows={3} value={text} onChange={(e) => onChange(e.target.value)} style={{ resize: 'vertical' }} />}
-      {f.type === 'number' && <input className="input" type="number" value={text} onChange={(e) => onChange(e.target.value)} style={{ width: 160 }} />}
-      {f.type === 'date' && <input className="input" type="date" value={text} onChange={(e) => onChange(e.target.value)} style={{ width: 190 }} />}
-      {f.type === 'yesno' && (
-        <div className="segmented" role="group" aria-label={f.label}>
-          {(['Yes', 'No'] as const).map((v) => (
-            <button key={v} aria-pressed={text === v} onClick={() => onChange(v)}>{v}</button>
-          ))}
-        </div>
-      )}
-      {(f.type === 'single' || f.type === 'dropdown') && (
-        <select className="select" value={text} onChange={(e) => onChange(e.target.value)}>
-          <option value="">Choose…</option>
-          {(f.options ?? []).map((o) => <option key={o} value={o}>{o}</option>)}
-        </select>
-      )}
-      {f.type === 'typeahead' && (
-        <>
-          <input className="input" list={`wiz-ta-${f.id}`} value={text} placeholder="Start typing…" onChange={(e) => onChange(e.target.value)} />
-          <datalist id={`wiz-ta-${f.id}`}>
-            {(f.options ?? []).map((o) => <option key={o} value={o} />)}
-          </datalist>
-        </>
-      )}
-      {f.type === 'multi' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {(f.options ?? []).map((o) => (
-            <label key={o} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--ink-1)', cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={list.includes(o)}
-                onChange={(e) => onChange(e.target.checked ? [...list, o] : list.filter((x) => x !== o))}
-              />
-              {o}
-            </label>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
 function CreateEventWizard({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const create = useCreateEvent()
   const { toastMsg } = useStore()
   const [step, setStep] = useState(0)
   const [d, setD] = useState<Draft>(EMPTY_DRAFT)
   const set = (patch: Partial<Draft>) => setD((prev) => ({ ...prev, ...patch }))
-  // The admin-designed intake (Admin → Forms), snapshotted when the wizard opens.
-  const [intake] = useState<IntakeForm>(readIntakeForm)
+  // The recruiter picks WHICH intake form this event uses (form library);
+  // the kind's default form is preselected. localStorage remains only an
+  // offline-demo fallback.
+  const { data: formLibrary } = useFormsList()
+  const intakeForms = useMemo(
+    () => (formLibrary ?? []).filter((f) => f.purpose === 'EVENT_INTAKE' && !f.template),
+    [formLibrary],
+  )
+  const [intakeFormId, setIntakeFormId] = useState<string | null>(null)
+  useEffect(() => {
+    if (!intakeFormId && intakeForms.length > 0) {
+      setIntakeFormId((intakeForms.find((f) => f.defaultForKind) ?? intakeForms[0]).id)
+    }
+  }, [intakeForms, intakeFormId])
+  const { data: intakeDef } = useFormDefById(intakeFormId ?? undefined)
+  const intake = useMemo<IntakeForm>(() => {
+    if (intakeDef) {
+      try {
+        return normalizeIntake(JSON.parse(intakeDef.schema))
+      } catch {
+        /* fall through */
+      }
+    }
+    return readIntakeForm()
+  }, [intakeDef])
+  const submitResponse = useSubmitFormResponse()
   const [answers, setAnswers] = useState<Record<string, Answer>>({})
 
-  const basicsValid = d.name.trim().length > 0 && d.day.length > 0
-  const intakeFields = flattenIntake(intake)
+  const endAfterStart = !d.endTime || !d.time || d.endTime > d.time
+  const basicsValid = d.name.trim().length > 0 && d.day.length > 0 && endAfterStart
+  // If/then rules (Admin -> Forms -> Configuration): hidden questions are
+  // neither rendered, required, nor submitted.
+  const isVisible = (f: IntakeField) => fieldVisible(intake, f.id, (id) => answerText(answers[id]))
+  const intakeFields = flattenIntake(intake).filter(isVisible)
   const detailsValid = intakeFields.every((f) => DISPLAY_TYPES.includes(f.type) || !f.required || answerText(answers[f.id]).trim() !== '')
   const isLast = step === STEPS.length - 1
 
   function submit() {
-    const startsAt = new Date(`${d.day}T${d.time || '09:00'}:00`).toISOString()
+    const startsAt = zonedToIso(d.day, d.time || '09:00', d.timezone)
+    const endsAt = d.endTime ? zonedToIso(d.day, d.endTime, d.timezone) : undefined
     create.mutate(
-      { name: d.name.trim(), type: d.type, location: d.location.trim(), startsAt },
+      {
+        name: d.name.trim(), type: d.type, location: d.location.trim(),
+        startsAt, endsAt, timezone: d.timezone, intakeFormId: intakeFormId ?? undefined,
+        flaggedCritical: d.flagged,
+      },
       {
         onSuccess: (ev) => {
+          const filled = intakeFields
+            .filter((f) => !DISPLAY_TYPES.includes(f.type))
+            .map((f) => ({ fieldId: f.id, label: f.label || 'Untitled', value: answerText(answers[f.id]) }))
+            .filter((r) => r.value.trim() !== '')
+          if (filled.length > 0) {
+            submitResponse.mutate({ purpose: 'EVENT_INTAKE', formId: intakeFormId ?? undefined, subjectType: 'EVENT', subjectId: ev.id, answers: JSON.stringify(filled) })
+          }
           saveResponses(ev.id, intake, answers)
           toastMsg(`Event "${d.name.trim()}" created`)
           onCreated()
@@ -377,6 +520,25 @@ function CreateEventWizard({ onClose, onCreated }: { onClose: () => void; onCrea
               <Field label="Start time" style={{ flex: 1 }}>
                 <input className="input" type="time" value={d.time} onChange={(e) => set({ time: e.target.value })} />
               </Field>
+              <Field label="End time" style={{ flex: 1 }}>
+                <input className="input" type="time" value={d.endTime} onChange={(e) => set({ endTime: e.target.value })} />
+                {!endAfterStart && (
+                  <div style={{ fontSize: 11.5, color: 'var(--danger-fg, #b3261e)', marginTop: 4 }}>Must be after the start time</div>
+                )}
+              </Field>
+              <Field label="Timezone" style={{ flex: 1 }}>
+                <select className="select" value={d.timezone} onChange={(e) => set({ timezone: e.target.value })}>
+                  {TIMEZONES.map((t) => (
+                    <option key={t.value} value={t.value}>
+                      {t.label}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--ink-2)', marginTop: 4 }}>
+                <input type="checkbox" checked={d.flagged} onChange={(e) => set({ flagged: e.target.checked })} />
+                Flag for compliance review — routes this event down the workflow's exception path
+              </label>
             </div>
           </div>
         )}
@@ -388,17 +550,30 @@ function CreateEventWizard({ onClose, onCreated }: { onClose: () => void; onCrea
                 No custom intake fields are configured. Admins can design this step under Admin → Forms.
               </p>
             ) : (
-              intake.rows.map((row) => (
-                <div key={row.id} style={{ display: 'grid', gridTemplateColumns: `repeat(${row.slots.length}, minmax(0, 1fr))`, gap: 12 }}>
-                  {row.slots.map((f, i) =>
-                    f ? (
+              <>
+              {intakeForms.length > 1 && (
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11.5, color: 'var(--ink-4)', marginBottom: 4 }}>
+                  Intake form
+                  <select className="select" value={intakeFormId ?? ''}
+                    onChange={(ev2) => { setIntakeFormId(ev2.target.value); setAnswers({}) }}>
+                    {intakeForms.map((f) => (
+                      <option key={f.id} value={f.id}>{f.name}{f.defaultForKind ? ' ★' : ''}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              {intake.rows.map((row) => {
+                const shown = row.slots.filter((f): f is IntakeField => f !== null && isVisible(f))
+                if (row.slots.some((f) => f !== null) && shown.length === 0) return null
+                return (
+                  <div key={row.id} style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.max(shown.length, 1)}, minmax(0, 1fr))`, gap: 12 }}>
+                    {shown.map((f) => (
                       <IntakeInput key={f.id} f={f} value={answers[f.id]} onChange={(v) => setAnswers((prev) => ({ ...prev, [f.id]: v }))} />
-                    ) : (
-                      <span key={`gap-${i}`} />
-                    ),
-                  )}
-                </div>
-              ))
+                    ))}
+                  </div>
+                )
+              })}
+              </>
             )}
           </div>
         )}
@@ -409,7 +584,11 @@ function CreateEventWizard({ onClose, onCreated }: { onClose: () => void; onCrea
             <Fact label="Type">{typeLabel(d.type)}</Fact>
             <Fact label="Format">{d.format}</Fact>
             <Fact label={d.format === 'Virtual' ? 'Link' : 'Location'}>{d.location || '—'}</Fact>
-            <Fact label="When">{d.day ? `${d.day} ${d.time}` : '—'}</Fact>
+            <Fact label="When">
+              {d.day
+                ? `${d.day} · ${d.time}${d.endTime ? `–${d.endTime}` : ''} ${TIMEZONES.find((t) => t.value === d.timezone)?.label ?? ''}`
+                : '—'}
+            </Fact>
             {intakeFields
               .filter((f) => !DISPLAY_TYPES.includes(f.type))
               .filter((f) => answerText(answers[f.id]).trim() !== '')
@@ -487,16 +666,17 @@ export default function EventsPage() {
       <div className="page-head">
         <div className="crumb">
           <span className="dot" />
-          Engagement · Events &amp; Campus
+          Engagement · Campus
         </div>
         <div className="page-head__row">
           <div>
-            <h1>Events &amp; Campus</h1>
+            <h1>Campus</h1>
             <p className="sub">
               Run campus drives and hiring events end to end — registration through attendance to offers, with the conversion
               funnel in one view.
             </p>
           </div>
+          <a className="btn btn--ghost" href="/careers/events" target="_blank" rel="noreferrer" style={{ marginRight: 8 }}>View public page →</a>
           <button className="btn btn--primary" onClick={() => setCreating(true)}>New event</button>
         </div>
       </div>
@@ -542,7 +722,8 @@ export default function EventsPage() {
               <div className="muted" style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                 <span>{e.location || 'TBD'}</span>
                 <span style={{ color: 'var(--ink-5)' }}>·</span>
-                <span>{date(e.startsAt)}</span>
+                <span>{date(e.startsAt)} · {timeRange(e)}</span>
+                {approvalBadge(e.approvalStatus)}
                 <span className="badge" style={{ marginLeft: 'auto' }}>{formatOf(e)}</span>
               </div>
               <FunnelBar e={e} />

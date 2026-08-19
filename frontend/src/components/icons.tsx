@@ -1,4 +1,4 @@
-// Lightweight inline SVG icons used across the Olivia app. Adapted from the VMS
+// Lightweight inline SVG icons used across the TA Portal app. Adapted from the VMS
 // prototype set. Each accepts a className (defaults to "ic") so it inherits the
 // design-system sizing/colour rules.
 import type { CSSProperties, ReactNode } from 'react'

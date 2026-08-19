@@ -17,6 +17,7 @@ import {
 } from '../api/hooks'
 import type { ApplicationRow, JobSummary } from '../api/types'
 import { date, initials } from '../lib/format'
+import { api } from '@/api/client'
 import { stageHue } from '@/lib/stages'
 
 // Terminal stages folded into the collapsible "Closed" lane so the active board
@@ -119,7 +120,68 @@ function Fact({ label, children }: { label: string; children: React.ReactNode })
   )
 }
 
-// Book an interview for this application onto one of the job's open slots.
+/* Candidate self-scheduling from the drawer. When the requisition has an
+   interview plan (defined at intake on the Availability screen), the recruiter
+   picks the round — its lineup and length drive the proposed times. */
+function SelfScheduleLink({ applicationId, jobId }: { applicationId: string; jobId: string }) {
+  const { toastMsg } = useStore()
+  const [busy, setBusy] = useState(false)
+  const [rounds, setRounds] = useState<{ id: string; roundNo: number; name: string; members: { name: string }[] }[]>([])
+  const [roundId, setRoundId] = useState<string | null>(null)
+
+  useEffect(() => {
+    api.get<{ id: string; roundNo: number; name: string; members: { name: string }[] }[]>('/interview-plan', { params: { jobId } })
+      .then((r) => {
+        setRounds(r.data)
+        setRoundId((cur) => cur ?? r.data[0]?.id ?? null)
+      })
+      .catch(() => setRounds([]))
+  }, [jobId])
+
+  const selected = rounds.find((r) => r.id === roundId)
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      {rounds.length > 0 && (
+        <select className="input" value={roundId ?? ''} onChange={(e) => setRoundId(e.target.value)} style={{ fontSize: 13 }}>
+          {rounds.map((r) => (
+            <option key={r.id} value={r.id}>
+              Round {r.roundNo} — {r.name}
+            </option>
+          ))}
+        </select>
+      )}
+      {selected && selected.members.length > 0 && (
+        <div style={{ fontSize: 12, color: 'var(--ink-4)' }}>
+          With {selected.members.map((m) => m.name).join(', ')}
+        </div>
+      )}
+      <button
+        className="btn btn--outline btn--sm"
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true)
+          try {
+            const r = await api.post<{ id: string }>('/interviews/self-schedule', {
+              applicationId,
+              ...(roundId ? { roundId } : {}),
+            })
+            const url = `${window.location.origin}/schedule/${r.data.id}`
+            await navigator.clipboard.writeText(url)
+            toastMsg('Self-schedule link copied — send it to the candidate')
+          } catch {
+            toastMsg('Could not create the self-schedule link')
+          } finally {
+            setBusy(false)
+          }
+        }}
+      >
+        Copy self-schedule link
+      </button>
+    </div>
+  )
+}
+
 function ScheduleInterview({ applicationId, jobId }: { applicationId: string; jobId: string }) {
   const [open, setOpen] = useState(false)
   const { data: slots } = useSlots(open ? jobId : undefined)
@@ -358,6 +420,9 @@ function CandidateDrawer({
           </div>
 
           <ScheduleInterview applicationId={app.id} jobId={app.jobId} />
+          <div style={{ marginTop: 10 }}>
+            <SelfScheduleLink applicationId={app.id} jobId={app.jobId} />
+          </div>
           <AriaTranscript applicationId={app.id} />
         </div>
 
@@ -672,17 +737,42 @@ export default function PipelinePage() {
               <span className="sub" style={{ margin: 0, marginLeft: 'auto', fontSize: 12 }}>Rejected · Withdrawn</span>
             </button>
             {closedOpen && (
-              <div style={{ padding: '0 14px 14px' }}>
-                {closedCards.length === 0 ? (
-                  <div style={{ fontSize: 12.5, color: 'var(--ink-5)', padding: '8px 0 4px' }}>No closed candidates.</div>
-                ) : (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 10 }}>
+              closedCards.length === 0 ? (
+                <div style={{ fontSize: 12.5, color: 'var(--ink-5)', padding: '0 14px 14px' }}>No closed candidates.</div>
+              ) : (
+                /* Closed records read better as a table — they're history, not work in flight. */
+                <table className="data-table" style={{ borderTop: '1px solid var(--line)' }}>
+                  <thead>
+                    <tr>
+                      <th>Candidate</th>
+                      <th>Role</th>
+                      <th>Outcome</th>
+                      <th className="t-right">Fit</th>
+                      <th>Applied</th>
+                      <th>Closed</th>
+                    </tr>
+                  </thead>
+                  <tbody>
                     {closedCards.map(({ card, tag }) => (
-                      <CandidateCard key={card.id} app={card} tag={tag} onSelect={setSelected} />
+                      <tr key={card.id} onClick={() => setSelected(card)} style={{ cursor: 'pointer' }}>
+                        <td>
+                          <span className="who">
+                            <span className="avatar" style={{ width: 28, height: 28, fontSize: 10.5 }}>{initials(card.candidateName)}</span>
+                            <span className="t-strong">{card.candidateName}</span>
+                          </span>
+                        </td>
+                        <td className="t-muted">{card.jobTitle}</td>
+                        <td>
+                          <span className={`badge ${tag === 'Rejected' ? 'badge--danger' : 'badge--purple'}`}>{tag}</span>
+                        </td>
+                        <td className="t-num t-right">{card.fitScore}</td>
+                        <td className="t-muted">{date(card.appliedAt)}</td>
+                        <td className="t-muted">{date(card.updatedAt)}</td>
+                      </tr>
                     ))}
-                  </div>
-                )}
-              </div>
+                  </tbody>
+                </table>
+              )
             )}
           </div>
         </>

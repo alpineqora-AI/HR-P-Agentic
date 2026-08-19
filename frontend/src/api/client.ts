@@ -1,12 +1,12 @@
 import axios from 'axios'
 
-// Olivia backend. Base URL is overridable via VITE_API_BASE_URL; defaults to
+// TA Portal backend. Base URL is overridable via VITE_API_BASE_URL; defaults to
 // the local Spring Boot instance (port 8092, all routes under /v1).
 export const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8092/v1',
 })
 
-const USER_KEY = 'olivia.userId'
+const USER_KEY = 'taportal.userId'
 
 export function getActingUserId(): string | null {
   try {

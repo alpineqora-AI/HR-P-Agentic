@@ -166,7 +166,7 @@ function PreviewBlock({ b }: { b: Block }) {
 
 // ── Main builder ────────────────────────────────────────────────────────────
 export default function EmailBuilder() {
-  const [templates, setTemplates] = usePersistentState<Template[]>('olivia.emailTemplates', starters())
+  const [templates, setTemplates] = usePersistentState<Template[]>('taportal.emailTemplates', starters())
   const [activeId, setActiveId] = useState<string>(() => templates[0]?.id ?? '')
   const dragFrom = useRef<number | null>(null)
   // Which field last had focus, so a merge-tag click knows where to insert.

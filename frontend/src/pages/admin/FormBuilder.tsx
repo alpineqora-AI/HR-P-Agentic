@@ -1,6 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import ConfirmButton from '@/components/ConfirmButton'
-import { usePersistentState, uid } from './builderStore'
+import { useCreateForm, useDeleteForm, useFormDefById, useFormsList, useMakeDefaultForm, useSaveAsTemplate, useUpdateFormDef } from '@/api/hooks'
+import type { FormMeta } from '@/api/types'
+import { uid } from './builderStore'
+import { IntakeInput, answerText, type Answer } from './IntakeInput'
 
 // Event-intake form builder — drag & drop redesign.
 // LEFT: a palette of field types (dropdown, type-ahead, single/multiple
@@ -35,13 +38,24 @@ export interface IntakeRow {
   slots: (IntakeField | null)[] // length 1 or 2
 }
 
+/** Conditional logic: show/hide a question based on another question's answer. */
+export interface FormRule {
+  id: string
+  action: 'show' | 'hide'
+  targetId: string
+  sourceId: string
+  op: 'equals' | 'not_equals' | 'contains'
+  value: string
+}
+
 export interface IntakeForm {
   title: string
   rows: IntakeRow[]
+  rules?: FormRule[]
   updatedAt: string
 }
 
-export const INTAKE_KEY = 'olivia.eventIntakeForm'
+export const INTAKE_KEY = 'taportal.eventIntakeForm'
 
 export const SYSTEM_FIELDS: { label: string; hint: string }[] = [
   { label: 'Event name', hint: 'Short text' },
@@ -50,27 +64,75 @@ export const SYSTEM_FIELDS: { label: string; hint: string }[] = [
   { label: 'Location / link', hint: 'Campus & room, or meeting URL' },
 ]
 
-const FIELD_PALETTE: { type: IntakeFieldType; label: string; hint: string; glyph: string }[] = [
-  { type: 'date', label: 'Date picker', hint: 'Calendar date', glyph: '▦' },
-  { type: 'email', label: 'Email', hint: 'Validated email address', glyph: '@' },
-  { type: 'fullname', label: 'Full Name', hint: 'First + last name', glyph: '👤' },
-  { type: 'header', label: 'Header', hint: 'Section heading (display)', glyph: 'H' },
-  { type: 'phone', label: 'Phone', hint: 'Phone number', glyph: '☎' },
-  { type: 'short', label: 'Short Text', hint: 'One line', glyph: '—' },
-  { type: 'long', label: 'Long Text', hint: 'Paragraph answer', glyph: '¶' },
-  { type: 'dropdown', label: 'Dropdown', hint: 'Pick one from a list', glyph: '▾' },
-  { type: 'single', label: 'Single choice', hint: 'Radio buttons', glyph: '◉' },
-  { type: 'multi', label: 'Multiple choice', hint: 'Checkboxes', glyph: '☑' },
-  { type: 'number', label: 'Number', hint: 'Capacity, headcount…', glyph: '#' },
-  { type: 'image', label: 'Image', hint: 'Show an image (display)', glyph: '🖼' },
-  { type: 'file', label: 'File upload', hint: 'Attach a document', glyph: '📎' },
-  { type: 'typeahead', label: 'Type ahead', hint: 'Search-as-you-type', glyph: '⌕' },
-  { type: 'yesno', label: 'Yes / No', hint: 'Waitlist, approval…', glyph: '⇄' },
+const FIELD_PALETTE: { type: IntakeFieldType; label: string; hint: string }[] = [
+  { type: 'date', label: 'Date picker', hint: 'Calendar date' },
+  { type: 'email', label: 'Email', hint: 'Validated email address' },
+  { type: 'fullname', label: 'Full Name', hint: 'First + last name' },
+  { type: 'header', label: 'Header', hint: 'Section heading (display)' },
+  { type: 'phone', label: 'Phone', hint: 'Phone number' },
+  { type: 'short', label: 'Short Text', hint: 'One line' },
+  { type: 'long', label: 'Long Text', hint: 'Paragraph answer' },
+  { type: 'dropdown', label: 'Dropdown', hint: 'Pick one from a list' },
+  { type: 'single', label: 'Single choice', hint: 'Radio buttons' },
+  { type: 'multi', label: 'Multiple choice', hint: 'Checkboxes' },
+  { type: 'number', label: 'Number', hint: 'Capacity, headcount…' },
+  { type: 'image', label: 'Image', hint: 'Show an image (display)' },
+  { type: 'file', label: 'File upload', hint: 'Attach a document' },
+  { type: 'typeahead', label: 'Type ahead', hint: 'Search-as-you-type' },
+  { type: 'yesno', label: 'Yes / No', hint: 'Waitlist, approval…' },
 ]
 
-const LAYOUT_PALETTE: { kind: 'single' | 'double'; label: string; hint: string; glyph: string }[] = [
-  { kind: 'single', label: 'Single field', hint: 'One long field per row', glyph: '▭' },
-  { kind: 'double', label: 'Side by side', hint: 'Two fields in one row', glyph: '◫' },
+/** Monochrome line icons for the palette — one visual language, no emoji. */
+const FIELD_ICON_PATHS: Record<string, React.ReactNode> = {
+  date: (<><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M3 9h18M8 3v4M16 3v4" /></>),
+  email: (<><rect x="3" y="5" width="18" height="14" rx="2" /><path d="m3.5 7 8.5 6 8.5-6" /></>),
+  fullname: (<><circle cx="12" cy="8" r="3.5" /><path d="M5.5 20c.7-3.6 3.3-5.5 6.5-5.5s5.8 1.9 6.5 5.5" /></>),
+  header: (<path d="M6 5v14M18 5v14M6 12h12" />),
+  phone: (<path d="M5 4h4l2 5-2.5 1.5a12 12 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2Z" />),
+  short: (<path d="M4 12h16" />),
+  long: (<path d="M4 7h16M4 12h16M4 17h10" />),
+  dropdown: (<><rect x="3" y="6" width="18" height="12" rx="2" /><path d="m14 11 2.5 2.5L19 11" /></>),
+  single: (<><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="3" fill="currentColor" stroke="none" /></>),
+  multi: (<><rect x="4" y="4" width="16" height="16" rx="3" /><path d="m8.5 12.5 2.5 2.5 5-5.5" /></>),
+  number: (<path d="M9 4 7 20M17 4l-2 16M5 9h15M4 15h15" />),
+  image: (<><rect x="3" y="5" width="18" height="14" rx="2" /><circle cx="8.5" cy="10" r="1.5" /><path d="m3 17 5-4 4 3 4-4 5 5" /></>),
+  file: (<path d="m16.5 6.5-6.8 6.8a2.1 2.1 0 0 0 3 3l6.8-6.8a4.2 4.2 0 1 0-6-6L6.7 10.3a6.3 6.3 0 0 0 9 9l6-6" />),
+  typeahead: (<><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></>),
+  yesno: (<><rect x="3" y="8" width="18" height="8" rx="4" /><circle cx="16" cy="12" r="2.5" /></>),
+  'layout-single': (<rect x="3" y="8" width="18" height="8" rx="2" />),
+  'layout-double': (<><rect x="3" y="8" width="8" height="8" rx="2" /><rect x="13" y="8" width="8" height="8" rx="2" /></>),
+  chevron: (<path d="m9 6 6 6-6 6" />),
+}
+
+function FieldIcon({ kind, size = 15 }: { kind: string; size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.8}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      {FIELD_ICON_PATHS[kind]}
+    </svg>
+  )
+}
+
+/** Palette accordion groups — click a header to expand downward. */
+const FIELD_GROUPS: { name: string; types: IntakeFieldType[] }[] = [
+  { name: 'Basics', types: ['short', 'long', 'number', 'date'] },
+  { name: 'Contact', types: ['fullname', 'email', 'phone'] },
+  { name: 'Choices', types: ['dropdown', 'single', 'multi', 'yesno', 'typeahead'] },
+  { name: 'Content & uploads', types: ['header', 'image', 'file'] },
+]
+
+const LAYOUT_PALETTE: { kind: 'single' | 'double'; label: string; hint: string }[] = [
+  { kind: 'single', label: 'Single field', hint: 'One long field per row' },
+  { kind: 'double', label: 'Side by side', hint: 'Two fields in one row' },
 ]
 
 const TYPE_LABEL: Record<IntakeFieldType, string> = {
@@ -115,10 +177,37 @@ export function defaultIntakeForm(): IntakeForm {
   }
 }
 
+/** Starter student-registration form (the QR/Aria flow renders this later). */
+export function defaultRegistrationForm(): IntakeForm {
+  return {
+    title: 'Register for this event',
+    updatedAt: new Date().toISOString(),
+    rows: [
+      { id: uid(), slots: [{ id: uid(), type: 'fullname', label: 'Full name', required: true }] },
+      {
+        id: uid(),
+        slots: [
+          { id: uid(), type: 'email', label: 'School email', required: true },
+          { id: uid(), type: 'phone', label: 'Mobile', help: 'For event-day updates', required: false },
+        ],
+      },
+      {
+        id: uid(),
+        slots: [
+          { id: uid(), type: 'dropdown', label: 'School', required: true, options: ['UNC Chapel Hill', 'NC State University', 'Duke University', 'Georgia Tech', 'Howard University', 'Other'] },
+          { id: uid(), type: 'number', label: 'Graduation year', required: true },
+        ],
+      },
+      { id: uid(), slots: [{ id: uid(), type: 'short', label: 'Major', required: false }] },
+      { id: uid(), slots: [{ id: uid(), type: 'multi', label: 'Areas of interest', required: false, options: ['Software Engineering', 'Consumer Banking', 'Global Markets', 'Risk & Compliance', 'Operations', 'Wealth Management'] }] },
+    ],
+  }
+}
+
 /** Old flat-fields shape → row shape (one field per row). */
 export function normalizeIntake(raw: Partial<IntakeForm> & { fields?: IntakeField[] }): IntakeForm {
   if (Array.isArray(raw.rows)) {
-    return { title: raw.title ?? 'Event intake', rows: raw.rows, updatedAt: raw.updatedAt ?? new Date().toISOString() }
+    return { title: raw.title ?? 'Event intake', rows: raw.rows, rules: raw.rules ?? [], updatedAt: raw.updatedAt ?? new Date().toISOString() }
   }
   if (Array.isArray(raw.fields)) {
     return {
@@ -133,13 +222,39 @@ export function normalizeIntake(raw: Partial<IntakeForm> & { fields?: IntakeFiel
 export const flattenIntake = (form: IntakeForm): IntakeField[] =>
   form.rows.flatMap((r) => r.slots.filter((s): s is IntakeField => s !== null))
 
+/**
+ * Evaluate the form's if/then rules for one field. `val` returns the current
+ * answer text of a field id. Semantics: a field with show-rules starts hidden
+ * until one matches; any matching hide-rule hides it.
+ */
+export function fieldVisible(form: IntakeForm, fieldId: string, val: (id: string) => string): boolean {
+  // Rules referencing deleted questions are ignored (same guard as the server's
+  // FormLogicService) — a stale show-rule must not hide its target forever.
+  const known = new Set(flattenIntake(form).map((f) => f.id))
+  const rules = (form.rules ?? []).filter((r) => known.has(r.targetId) && known.has(r.sourceId))
+  const mine = rules.filter((r) => r.targetId === fieldId && r.sourceId && r.value !== '')
+  if (mine.length === 0) return true
+  const matches = (r: FormRule) => {
+    const v = (val(r.sourceId) ?? '').trim().toLowerCase()
+    const want = r.value.trim().toLowerCase()
+    if (r.op === 'equals') return v === want || v.split(', ').includes(want)
+    if (r.op === 'not_equals') return v !== want && !v.split(', ').includes(want)
+    return v.includes(want)
+  }
+  const showRules = mine.filter((r) => r.action === 'show')
+  const hideRules = mine.filter((r) => r.action === 'hide')
+  if (showRules.length > 0 && !showRules.some(matches)) return false
+  if (hideRules.some(matches)) return false
+  return true
+}
+
 // ── Drag payload helpers (native HTML5 DnD) ─────────────────────────────────
 type DragPayload =
   | { kind: 'palette-field'; type: IntakeFieldType }
   | { kind: 'palette-layout'; layout: 'single' | 'double' }
   | { kind: 'row'; rowId: string }
 
-const DND_MIME = 'application/x-olivia-intake'
+const DND_MIME = 'application/x-taportal-intake'
 
 function setPayload(e: React.DragEvent, p: DragPayload) {
   e.dataTransfer.setData(DND_MIME, JSON.stringify(p))
@@ -155,57 +270,135 @@ function getPayload(e: React.DragEvent): DragPayload | null {
   }
 }
 
-// ── Field editor card (inside a slot) ───────────────────────────────────────
-function FieldCard({ f, locked, onChange, onRemove }: {
+// ── Canvas field (WYSIWYG, click to select) ─────────────────────────────────
+function CanvasField({ f, selected, onSelect, onDuplicate, onRemove }: {
   f: IntakeField
-  locked?: boolean
-  onChange: (f: IntakeField) => void
+  selected: boolean
+  onSelect: () => void
+  onDuplicate: () => void
   onRemove: () => void
 }) {
-  const hasOpts = optionTypes.includes(f.type)
-  const isDisplay = DISPLAY_TYPES.includes(f.type)
+  const missingOptions = optionTypes.includes(f.type) && (f.options ?? []).length === 0
+  const act = {
+    border: '1px solid var(--line)', background: 'var(--app-panel)', borderRadius: 6,
+    width: 24, height: 24, cursor: 'pointer', fontSize: 12, color: 'var(--ink-3)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+  } as const
   return (
-    <div style={{ border: '1px solid var(--line)', borderRadius: 'var(--ra-2)', background: 'var(--app-panel)' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', borderBottom: '1px solid var(--line)' }}>
-        <span className="badge badge--info">{TYPE_LABEL[f.type]}</span>
-        <div style={{ flex: 1 }} />
-        {!isDisplay && (
-          <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: 'var(--ink-3)' }}>
-            <input type="checkbox" checked={f.required} disabled={locked} onChange={(e) => onChange({ ...f, required: e.target.checked })} />
-            Required
-          </label>
-        )}
-        <button className="btn btn--ghost btn--sm" disabled={locked} onClick={onRemove} aria-label="Remove field">×</button>
+    <div
+      onClick={(e) => { e.stopPropagation(); onSelect() }}
+      style={{
+        position: 'relative',
+        cursor: 'pointer',
+        border: selected ? '1.5px solid var(--bofa-navy)' : missingOptions ? '1.5px solid var(--bofa-red, #c41230)' : '1px solid var(--line)',
+        boxShadow: selected ? '0 0 0 3px rgba(1, 33, 105, 0.14)' : 'none',
+        borderRadius: 'var(--ra-2)',
+        background: 'var(--app-panel)',
+        padding: '12px 14px 8px',
+      }}
+    >
+      {/* Render exactly what the filler will see; clicks select, not focus. */}
+      <div style={{ pointerEvents: 'none' }}>
+        <IntakePreviewField f={f} />
       </div>
-      <div style={{ padding: '10px 10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <input className="input" value={f.label} disabled={locked} placeholder={f.type === 'header' ? 'Heading text' : f.type === 'image' ? 'Caption (optional)' : 'Field label'} style={{ fontSize: 13, fontWeight: 500 }}
-          onChange={(e) => onChange({ ...f, label: e.target.value })} />
-        {f.type === 'image' && (
-          <>
-            <input className="input" value={f.src ?? ''} disabled={locked} placeholder="Image URL (https://…)" style={{ fontSize: 12 }}
-              onChange={(e) => onChange({ ...f, src: e.target.value || undefined })} />
-            {f.src ? <img src={f.src} alt={f.label || 'Form image'} style={{ maxWidth: '100%', maxHeight: 120, borderRadius: 'var(--ra-2)', border: '1px solid var(--line)', objectFit: 'cover' }} /> : null}
-          </>
-        )}
-        <input className="input" value={f.help ?? ''} disabled={locked} placeholder={f.type === 'header' ? 'Subheading (optional)' : 'Help text (optional)'} style={{ fontSize: 12 }}
-          onChange={(e) => onChange({ ...f, help: e.target.value || undefined })} />
-        {hasOpts && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <div className="eyebrow">{f.type === 'typeahead' ? 'Suggestions' : 'Options'}</div>
-            {(f.options ?? []).map((o, i) => (
-              <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                <input className="input" value={o} disabled={locked} style={{ flex: 1, fontSize: 12.5 }}
-                  onChange={(e) => onChange({ ...f, options: (f.options ?? []).map((x, j) => (j === i ? e.target.value : x)) })} />
-                <button className="btn btn--ghost btn--sm" disabled={locked || (f.options ?? []).length <= 1} aria-label="Remove option"
-                  onClick={() => onChange({ ...f, options: (f.options ?? []).filter((_, j) => j !== i) })}>×</button>
-              </div>
-            ))}
-            <button className="btn btn--outline btn--sm" style={{ alignSelf: 'flex-start' }} disabled={locked}
-              onClick={() => onChange({ ...f, options: [...(f.options ?? []), `Option ${(f.options ?? []).length + 1}`] })}>
-              + Add option
-            </button>
-          </div>
-        )}
+      {selected && (
+        <span className="badge badge--info" style={{ position: 'absolute', top: -10, left: 10, fontSize: 9.5 }}>
+          {TYPE_LABEL[f.type]}
+        </span>
+      )}
+      {missingOptions && (
+        <span className="badge badge--danger" style={{ position: 'absolute', top: -10, right: selected ? 66 : 10, fontSize: 9.5 }}>
+          No options
+        </span>
+      )}
+      {selected && (
+        <span style={{ position: 'absolute', top: -12, right: 8, display: 'flex', gap: 4 }}>
+          <button title="Duplicate" aria-label="Duplicate field" style={act}
+            onClick={(e) => { e.stopPropagation(); onDuplicate() }}>⧉</button>
+          <button title="Delete (Del)" aria-label="Delete field" style={{ ...act, color: 'var(--bofa-red, #c41230)' }}
+            onClick={(e) => { e.stopPropagation(); onRemove() }}>×</button>
+        </span>
+      )}
+    </div>
+  )
+}
+
+// ── Properties panel (right column, edits the selected field) ───────────────
+function PropertiesPanel({ field, onPatch, onDuplicate, onDelete }: {
+  field: IntakeField | null
+  onPatch: (patch: Partial<IntakeField>) => void
+  onDuplicate: () => void
+  onDelete: () => void
+}) {
+  if (!field) {
+    return (
+      <div className="card" style={{ padding: '18px 16px' }}>
+        <div className="eyebrow" style={{ marginBottom: 8 }}>Field properties</div>
+        <p className="muted" style={{ fontSize: 12.5, margin: 0 }}>
+          Select a field on the canvas to edit its label, help text, options and rules.
+        </p>
+      </div>
+    )
+  }
+  const hasOpts = optionTypes.includes(field.type)
+  const isDisplay = DISPLAY_TYPES.includes(field.type)
+  return (
+    <div className="card" style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span className="eyebrow">Field properties</span>
+        <span className="badge badge--info">{TYPE_LABEL[field.type]}</span>
+      </div>
+
+      <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11.5, color: 'var(--ink-4)' }}>
+        {field.type === 'header' ? 'Heading' : field.type === 'image' ? 'Caption' : 'Label'}
+        <input className="input" value={field.label} style={{ fontSize: 13 }}
+          placeholder={field.type === 'header' ? 'Section title' : 'Field label'}
+          onChange={(e) => onPatch({ label: e.target.value })} />
+      </label>
+
+      {field.type === 'image' && (
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11.5, color: 'var(--ink-4)' }}>
+          Image URL
+          <input className="input" value={field.src ?? ''} style={{ fontSize: 12.5 }} placeholder="https://…"
+            onChange={(e) => onPatch({ src: e.target.value || undefined })} />
+        </label>
+      )}
+
+      <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11.5, color: 'var(--ink-4)' }}>
+        {field.type === 'header' ? 'Subheading' : 'Help text'}
+        <input className="input" value={field.help ?? ''} style={{ fontSize: 12.5 }} placeholder="Optional"
+          onChange={(e) => onPatch({ help: e.target.value || undefined })} />
+      </label>
+
+      {!isDisplay && (
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: 'var(--ink-2)' }}>
+          <input type="checkbox" checked={field.required} onChange={(e) => onPatch({ required: e.target.checked })} />
+          Required
+        </label>
+      )}
+
+      {hasOpts && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div className="eyebrow">{field.type === 'typeahead' ? 'Suggestions' : 'Options'}</div>
+          {(field.options ?? []).map((o, i) => (
+            <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <input className="input" value={o} style={{ flex: 1, fontSize: 12.5 }}
+                onChange={(e) => onPatch({ options: (field.options ?? []).map((x, j) => (j === i ? e.target.value : x)) })} />
+              <button className="btn btn--ghost btn--sm" disabled={(field.options ?? []).length <= 1} aria-label="Remove option"
+                onClick={() => onPatch({ options: (field.options ?? []).filter((_, j) => j !== i) })}>×</button>
+            </div>
+          ))}
+          <button className="btn btn--outline btn--sm" style={{ alignSelf: 'flex-start' }}
+            onClick={() => onPatch({ options: [...(field.options ?? []), `Option ${(field.options ?? []).length + 1}`] })}>
+            + Add option
+          </button>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: 8, borderTop: '1px solid var(--line)', paddingTop: 12 }}>
+        <button className="btn btn--outline btn--sm" onClick={onDuplicate}>Duplicate</button>
+        <span style={{ flex: 1 }} />
+        <button className="btn btn--outline btn--sm" style={{ color: 'var(--bofa-red, #c41230)' }} onClick={onDelete}>Delete</button>
       </div>
     </div>
   )
@@ -342,23 +535,265 @@ function EmptySlot({ onDropField, wide }: { onDropField: (t: IntakeFieldType) =>
   )
 }
 
+// ── Configuration: if/then rules per question ───────────────────────────────
+function RulesEditor({ form, onRules }: { form: IntakeForm; onRules: (rules: FormRule[]) => void }) {
+  const fields = flattenIntake(form)
+  const answerable = fields.filter((f) => !DISPLAY_TYPES.includes(f.type))
+  const rules = form.rules ?? []
+  const label = (f: IntakeField) => f.label || TYPE_LABEL[f.type]
+
+  const addRule = () =>
+    onRules([
+      ...rules,
+      { id: uid(), action: 'show', targetId: fields[0]?.id ?? '', sourceId: answerable[0]?.id ?? '', op: 'equals', value: '' },
+    ])
+  const patch = (id: string, p: Partial<FormRule>) => onRules(rules.map((r) => (r.id === id ? { ...r, ...p } : r)))
+  const remove = (id: string) => onRules(rules.filter((r) => r.id !== id))
+
+  const sel = { fontSize: 12.5, width: 'auto', minWidth: 130 } as const
+
+  return (
+    <div className="card" style={{ padding: '16px 18px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+        <span className="eyebrow">If / then rules</span>
+        <span style={{ flex: 1 }} />
+        <button className="btn btn--outline btn--sm" onClick={addRule} disabled={answerable.length === 0}>+ Add rule</button>
+      </div>
+      <p className="muted" style={{ fontSize: 12.5, margin: '0 0 14px' }}>
+        Show or hide a question based on another answer — the form adapts as people fill it. Tip: for
+        regional or school-specific questions, condition on the School (or region) question.
+      </p>
+
+      {rules.length === 0 && (
+        <div style={{ border: '2px dashed var(--line)', borderRadius: 'var(--ra-2)', padding: '26px 16px', textAlign: 'center', fontSize: 12.5, color: 'var(--ink-4)' }}>
+          No rules yet — every question always shows. Add a rule to make the form dynamic.
+        </div>
+      )}
+
+      {rules.map((r) => {
+        const source = fields.find((f) => f.id === r.sourceId)
+        const target = fields.find((f) => f.id === r.targetId)
+        const broken = !source || !target
+        const sourceOptions = source?.options ?? (source?.type === 'yesno' ? ['Yes', 'No'] : null)
+        return (
+          <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '10px 12px', border: broken ? '1.5px solid var(--bofa-red, #c41230)' : '1px solid var(--line)', borderRadius: 'var(--ra-2)', marginBottom: 8, background: 'var(--app-panel)' }}>
+            {broken && (
+              <span className="badge badge--danger" style={{ fontSize: 10 }}>
+                References a deleted question — this rule is ignored
+              </span>
+            )}
+            <select className="select" style={sel} value={r.action} onChange={(e) => patch(r.id, { action: e.target.value as FormRule['action'] })}>
+              <option value="show">Show</option>
+              <option value="hide">Hide</option>
+            </select>
+            <select className="select" style={{ ...sel, minWidth: 170 }} value={r.targetId} onChange={(e) => patch(r.id, { targetId: e.target.value })}>
+              {fields.map((f) => <option key={f.id} value={f.id}>{label(f)}</option>)}
+            </select>
+            <span style={{ fontSize: 12.5, color: 'var(--ink-4)' }}>when</span>
+            <select className="select" style={{ ...sel, minWidth: 170 }} value={r.sourceId} onChange={(e) => patch(r.id, { sourceId: e.target.value, value: '' })}>
+              {answerable.map((f) => <option key={f.id} value={f.id}>{label(f)}</option>)}
+            </select>
+            <select className="select" style={sel} value={r.op} onChange={(e) => patch(r.id, { op: e.target.value as FormRule['op'] })}>
+              <option value="equals">is</option>
+              <option value="not_equals">is not</option>
+              <option value="contains">contains</option>
+            </select>
+            {sourceOptions ? (
+              <select className="select" style={{ ...sel, minWidth: 150 }} value={r.value} onChange={(e) => patch(r.id, { value: e.target.value })}>
+                <option value="">Choose value…</option>
+                {sourceOptions.map((o) => <option key={o} value={o}>{o}</option>)}
+              </select>
+            ) : (
+              <input className="input" style={{ fontSize: 12.5, width: 150 }} placeholder="Value" value={r.value}
+                onChange={(e) => patch(r.id, { value: e.target.value })} />
+            )}
+            <span style={{ flex: 1 }} />
+            <button className="btn btn--ghost btn--sm" aria-label="Delete rule" onClick={() => remove(r.id)}>×</button>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ── Live preview: interactive, rules evaluated as you answer ────────────────
+function LivePreview({ form }: { form: IntakeForm }) {
+  const [answers, setAnswers] = useState<Record<string, Answer>>({})
+  const val = (id: string) => answerText(answers[id])
+  const ruleCount = (form.rules ?? []).length
+  return (
+    <div className="card" style={{ maxWidth: 680, margin: '0 auto', overflow: 'hidden' }}>
+      <div style={{ background: 'var(--bofa-navy)', color: '#fff', padding: '14px 18px' }}>
+        <div style={{ fontSize: 12, opacity: 0.75 }}>
+          Preview{ruleCount > 0 ? ` · ${ruleCount} rule${ruleCount === 1 ? '' : 's'} active` : ''}
+        </div>
+        <div style={{ fontFamily: 'var(--font-display)', fontSize: 18, marginTop: 2 }}>
+          Form preview
+        </div>
+      </div>
+      <div className="card__body" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {form.rows.map((r) => {
+          const shown = r.slots.filter((sl): sl is IntakeField => sl !== null && fieldVisible(form, sl.id, val))
+          if (r.slots.some((sl) => sl !== null) && shown.length === 0) return null
+          return (
+            <div key={r.id} style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.max(shown.length, 1)}, minmax(0, 1fr))`, gap: 14 }}>
+              {shown.map((sl) => (
+                <IntakeInput key={sl.id} f={sl} value={answers[sl.id]} onChange={(v) => setAnswers((prev) => ({ ...prev, [sl.id]: v }))} />
+              ))}
+            </div>
+          )
+        })}
+        {form.rows.length === 0 && <div style={{ fontSize: 12.5, color: 'var(--ink-5)', textAlign: 'center', padding: '18px 0' }}>No fields yet.</div>}
+      </div>
+    </div>
+  )
+}
+
 // ── Main builder ────────────────────────────────────────────────────────────
+const KINDS = [
+  { key: 'EVENT_INTAKE', label: 'Event intake', hint: 'Used by Campus · New event', fallback: defaultIntakeForm },
+  { key: 'EVENT_REGISTRATION', label: 'Student registration', hint: 'What students fill in (and Aria asks) to register', fallback: defaultRegistrationForm },
+] as const
+
 export default function FormBuilder() {
-  const [raw, setForm] = usePersistentState<IntakeForm>(INTAKE_KEY, defaultIntakeForm())
-  const form = normalizeIntake(raw)
-  const [preview, setPreview] = useState(false)
+  // The form LIBRARY: many named forms per kind + reusable templates. The
+  // active form is id-addressed; kind determines fallbacks and hints.
+  const { data: library } = useFormsList()
+  const [activeFormId, setActiveFormId] = useState<string | null>(null)
+  useEffect(() => {
+    if (!activeFormId && library && library.length > 0) {
+      const preferred =
+        library.find((f) => f.purpose === 'EVENT_INTAKE' && f.defaultForKind && !f.template) ??
+        library.find((f) => !f.template) ?? library[0]
+      setActiveFormId(preferred.id)
+    }
+  }, [library, activeFormId])
+
+  const { data: serverForm, isLoading } = useFormDefById(activeFormId ?? undefined)
+  const updateForm = useUpdateFormDef()
+  const createForm = useCreateForm()
+  const saveTemplate = useSaveAsTemplate()
+  const makeDefault = useMakeDefaultForm()
+  const deleteForm = useDeleteForm()
+  const meta = KINDS.find((k) => k.key === serverForm?.purpose) ?? KINDS[0]
+  const [draft, setForm] = useState<IntakeForm | null>(null)
+  const [dirty, setDirty] = useState(false)
+  const [mode, setMode] = useState<'builder' | 'preview' | 'config'>('builder')
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [openGroups, setOpenGroups] = useState<string[]>(['Basics'])
+
+  // Load the server schema whenever the purpose (or server copy) changes.
+  useEffect(() => {
+    if (serverForm) {
+      try {
+        setForm(normalizeIntake(JSON.parse(serverForm.schema)))
+      } catch {
+        setForm(meta.fallback())
+      }
+      setDirty(false)
+      setSelectedId(null)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serverForm?.id, serverForm?.updatedAt])
+
+  // Warn before the tab closes with unsaved edits.
+  useEffect(() => {
+    if (!dirty) return
+    const guard = (e: BeforeUnloadEvent) => { e.preventDefault() }
+    window.addEventListener('beforeunload', guard)
+    return () => window.removeEventListener('beforeunload', guard)
+  }, [dirty])
+
+  const form = draft ?? meta.fallback()
+
+  // Keyboard: Delete/Backspace removes the selected field (unless typing),
+  // Escape deselects, Cmd/Ctrl+S saves.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement)?.tagName)
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault()
+        if (dirty) save()
+        return
+      }
+      if (typing) return
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId) {
+        e.preventDefault()
+        removeField(selectedId)
+      }
+      if (e.key === 'Escape') setSelectedId(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dirty, selectedId, draft, activeFormId])
+
+  const save = () => {
+    if (!activeFormId || !serverForm) return
+    updateForm.mutate(
+      { id: activeFormId, name: serverForm.name, schema: JSON.stringify(form) },
+      { onSuccess: () => setDirty(false) },
+    )
+  }
+
+  const switchForm = (id: string) => {
+    if (id === activeFormId) return
+    if (dirty && !window.confirm('Discard unsaved changes to this form?')) return
+    setActiveFormId(id)
+  }
+
+  // Action panel: create a new form, or snapshot the current one as a template.
+  const [panel, setPanel] = useState<null | 'new' | 'template'>(null)
+  const [panelName, setPanelName] = useState('')
+  const [panelKind, setPanelKind] = useState<(typeof KINDS)[number]['key']>('EVENT_INTAKE')
+  const [panelSource, setPanelSource] = useState<string>('blank')
 
   function patchRows(fn: (rows: IntakeRow[]) => IntakeRow[]) {
     setForm((prev) => {
-      const f = normalizeIntake(prev)
+      const f = normalizeIntake(prev ?? meta.fallback())
       return { ...f, rows: fn(f.rows), updatedAt: new Date().toISOString() }
     })
+    setDirty(true)
   }
 
   function makeRow(p: DragPayload): IntakeRow | null {
-    if (p.kind === 'palette-field') return { id: uid(), slots: [newField(p.type)] }
+    if (p.kind === 'palette-field') {
+      const f = newField(p.type)
+      setSelectedId(f.id)
+      return { id: uid(), slots: [f] }
+    }
     if (p.kind === 'palette-layout') return { id: uid(), slots: p.layout === 'double' ? [null, null] : [null] }
     return null
+  }
+
+  const selectedField = flattenIntake(form).find((f) => f.id === selectedId) ?? null
+
+  function patchField(id: string, patch: Partial<IntakeField>) {
+    patchRows((rows) => rows.map((r) => ({ ...r, slots: r.slots.map((sl) => (sl && sl.id === id ? { ...sl, ...patch } : sl)) })))
+  }
+
+  function removeField(id: string) {
+    // Deleting a question also deletes the rules that reference it — leaving
+    // them would silently break the logic (see fieldVisible's stale-rule guard).
+    setForm((prev) => {
+      const f = normalizeIntake(prev ?? meta.fallback())
+      return {
+        ...f,
+        rows: f.rows.map((r) => ({ ...r, slots: r.slots.map((sl) => (sl && sl.id === id ? null : sl)) })),
+        rules: (f.rules ?? []).filter((r) => r.targetId !== id && r.sourceId !== id),
+        updatedAt: new Date().toISOString(),
+      }
+    })
+    setDirty(true)
+    if (selectedId === id) setSelectedId(null)
+  }
+
+  function duplicateField(id: string) {
+    const src = flattenIntake(form).find((f) => f.id === id)
+    if (!src) return
+    const copy: IntakeField = { ...src, id: uid() }
+    patchRows((rows) => [...rows, { id: uid(), slots: [copy] }])
+    setSelectedId(copy.id)
   }
 
   /** Insert (palette drops) or move (row drags) at index. */
@@ -389,19 +824,143 @@ export default function FormBuilder() {
       {/* Toolbar */}
       <div className="card">
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', flexWrap: 'wrap' }}>
-          <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, color: 'var(--ink-0)' }}>Event intake form</div>
-          <span className="eyebrow">Used by Events → New event</span>
+          <select
+            className="select"
+            style={{ width: 250 }}
+            value={activeFormId ?? ''}
+            onChange={(e) => switchForm(e.target.value)}
+          >
+            {KINDS.map((k) => {
+              const forms = (library ?? []).filter((f) => f.purpose === k.key && !f.template)
+              return forms.length === 0 ? null : (
+                <optgroup key={k.key} label={k.label}>
+                  {forms.map((f: FormMeta) => (
+                    <option key={f.id} value={f.id}>{f.name}{f.defaultForKind ? ' (default)' : ''}</option>
+                  ))}
+                </optgroup>
+              )
+            })}
+            {(library ?? []).some((f) => f.template) && (
+              <optgroup label="Templates">
+                {(library ?? []).filter((f) => f.template).map((f: FormMeta) => (
+                  <option key={f.id} value={f.id}>{f.name}</option>
+                ))}
+              </optgroup>
+            )}
+          </select>
+          <span className="eyebrow">{serverForm?.template ? `Template · ${meta.label}` : meta.hint}</span>
           <div style={{ flex: 1 }} />
           <span className="eyebrow">{fieldCount} fields · {form.rows.length} rows</span>
-          <span className="badge badge--ok" title="Saved automatically">Saved</span>
-          <button className="btn btn--outline btn--sm" aria-pressed={preview} onClick={() => setPreview((v) => !v)}>
-            {preview ? 'Edit' : 'Preview'}
+          {isLoading ? (
+            <span className="badge">Loading…</span>
+          ) : dirty ? (
+            <span className="badge badge--warn">Unsaved changes</span>
+          ) : (
+            <span className="badge badge--ok">Saved</span>
+          )}
+          <button className="btn btn--primary btn--sm" disabled={!dirty || updateForm.isPending} onClick={save}>
+            {updateForm.isPending ? 'Saving…' : 'Save'}
           </button>
-          <ConfirmButton label="Reset to defaults" confirmLabel="Replace all fields?" onConfirm={() => setForm(defaultIntakeForm())} />
+          <ConfirmButton label="Reset to defaults" confirmLabel="Replace all fields?" onConfirm={() => { setForm(meta.fallback()); setDirty(true) }} />
         </div>
+
+        {/* Library actions: create forms, snapshot templates, manage defaults. */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 14px 12px', flexWrap: 'wrap' }}>
+          <button className="btn btn--outline btn--sm" onClick={() => { setPanel('new'); setPanelName(''); setPanelKind(meta.key); setPanelSource(activeFormId ?? 'blank') }}>
+            + New form
+          </button>
+          <button className="btn btn--outline btn--sm" disabled={!serverForm}
+            onClick={() => { setPanel('template'); setPanelName(`${serverForm?.name ?? 'Form'} template`) }}>
+            Save as template
+          </button>
+          {serverForm && !serverForm.template && !serverForm.defaultForKind && (
+            <button className="btn btn--outline btn--sm" disabled={makeDefault.isPending}
+              onClick={() => activeFormId && makeDefault.mutate(activeFormId)}>
+              Make default
+            </button>
+          )}
+          {serverForm?.defaultForKind && <span className="badge badge--ok">Default for {meta.label}</span>}
+          <span style={{ flex: 1 }} />
+          {serverForm && !serverForm.defaultForKind && (
+            <button className="btn btn--outline btn--sm" style={{ color: 'var(--bofa-red, #c41230)' }} disabled={deleteForm.isPending}
+              onClick={() => {
+                if (!activeFormId) return
+                if (!window.confirm(`Delete "${serverForm.name}"? This cannot be undone.`)) return
+                deleteForm.mutate(activeFormId, { onSuccess: () => setActiveFormId(null) })
+              }}>
+              Delete
+            </button>
+          )}
+        </div>
+
+        {panel && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', margin: '0 14px 12px', padding: '10px 12px', border: '1px solid var(--line)', borderRadius: 'var(--ra-2)', background: 'var(--app-sunken)' }}>
+            {panel === 'new' ? (
+              <>
+                <span className="eyebrow">New form</span>
+                <input className="input" style={{ width: 200, fontSize: 13 }} placeholder="Form name" value={panelName}
+                  onChange={(e) => setPanelName(e.target.value)} />
+                <select className="select" style={{ width: 180, fontSize: 13 }} value={panelKind}
+                  onChange={(e) => { setPanelKind(e.target.value as typeof panelKind); setPanelSource('blank') }}>
+                  {KINDS.map((k) => <option key={k.key} value={k.key}>{k.label}</option>)}
+                </select>
+                <select className="select" style={{ width: 220, fontSize: 13 }} value={panelSource}
+                  onChange={(e) => setPanelSource(e.target.value)}>
+                  <option value="blank">Start blank</option>
+                  {(library ?? []).filter((f) => f.purpose === panelKind).map((f) => (
+                    <option key={f.id} value={f.id}>Copy of: {f.name}{f.template ? ' (template)' : ''}</option>
+                  ))}
+                </select>
+                <button className="btn btn--primary btn--sm" disabled={!panelName.trim() || createForm.isPending}
+                  onClick={() =>
+                    createForm.mutate(
+                      { purpose: panelKind, name: panelName.trim(), fromFormId: panelSource === 'blank' ? undefined : panelSource },
+                      { onSuccess: (d) => { setActiveFormId((d as { id: string }).id); setPanel(null) } },
+                    )
+                  }>
+                  {createForm.isPending ? 'Creating…' : 'Create'}
+                </button>
+              </>
+            ) : (
+              <>
+                <span className="eyebrow">Save as template</span>
+                <input className="input" style={{ width: 260, fontSize: 13 }} placeholder="Template name" value={panelName}
+                  onChange={(e) => setPanelName(e.target.value)} />
+                <button className="btn btn--primary btn--sm" disabled={!panelName.trim() || saveTemplate.isPending}
+                  onClick={() =>
+                    activeFormId && saveTemplate.mutate(
+                      { id: activeFormId, name: panelName.trim() },
+                      { onSuccess: () => setPanel(null) },
+                    )
+                  }>
+                  {saveTemplate.isPending ? 'Saving…' : 'Save template'}
+                </button>
+              </>
+            )}
+            <button className="btn btn--ghost btn--sm" onClick={() => setPanel(null)}>Cancel</button>
+          </div>
+        )}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '210px minmax(0, 1fr)', gap: 16, alignItems: 'start' }}>
+      <div className="tabs" style={{ marginBottom: 2 }}>
+        <button className="tab" aria-selected={mode === 'builder'} onClick={() => setMode('builder')}>Builder</button>
+        <button className="tab" aria-selected={mode === 'preview'} onClick={() => setMode('preview')}>Preview</button>
+        <button className="tab" aria-selected={mode === 'config'} onClick={() => setMode('config')}>Configuration</button>
+      </div>
+
+      {mode === 'preview' && <LivePreview form={form} />}
+      {mode === 'config' && (
+        <RulesEditor
+          form={form}
+          onRules={(rules) => {
+            setForm((prev) => ({ ...normalizeIntake(prev ?? meta.fallback()), rules, updatedAt: new Date().toISOString() }))
+            setDirty(true)
+          }}
+        />
+      )}
+
+      {mode === 'builder' && (
+      <div style={{ display: 'grid', gridTemplateColumns: '210px minmax(0, 1fr) 280px', gap: 16, alignItems: 'start' }}>
         {/* LEFT: palette */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, position: 'sticky', top: 12 }}>
           <div className="card" style={{ padding: 10 }}>
@@ -415,7 +974,7 @@ export default function FormBuilder() {
                 title="Drag onto the canvas (or click to append)"
                 style={{ display: 'flex', alignItems: 'center', gap: 10, border: '1px solid var(--line)', background: 'var(--app-panel)', cursor: 'grab', borderRadius: 'var(--ra-2)', padding: '8px 10px', marginBottom: 6 }}
               >
-                <span style={{ width: 20, textAlign: 'center', color: 'var(--bofa-navy)', fontSize: 14 }}>{l.glyph}</span>
+                <span style={{ width: 20, display: 'inline-flex', justifyContent: 'center', color: 'var(--ink-3)' }}><FieldIcon kind={`layout-${l.kind}`} /></span>
                 <span>
                   <div style={{ fontSize: 13, color: 'var(--ink-1)', fontWeight: 500 }}>{l.label}</div>
                   <div style={{ fontSize: 11, color: 'var(--ink-5)' }}>{l.hint}</div>
@@ -426,33 +985,76 @@ export default function FormBuilder() {
 
           <div className="card" style={{ padding: 10 }}>
             <div className="eyebrow" style={{ padding: '4px 6px 8px' }}>Field types</div>
-            {FIELD_PALETTE.map((p) => (
-              <div
-                key={p.type}
-                draggable
-                onDragStart={(e) => setPayload(e, { kind: 'palette-field', type: p.type })}
-                onClick={() => patchRows((rows) => [...rows, { id: uid(), slots: [newField(p.type)] }])}
-                title="Drag into a slot or onto the canvas (or click to append)"
-                style={{ display: 'flex', alignItems: 'center', gap: 10, border: '1px solid var(--line)', background: 'var(--app-panel)', cursor: 'grab', borderRadius: 'var(--ra-2)', padding: '8px 10px', marginBottom: 6 }}
-              >
-                <span style={{ width: 20, textAlign: 'center', color: 'var(--bofa-navy)', fontSize: 14 }}>{p.glyph}</span>
-                <span>
-                  <div style={{ fontSize: 13, color: 'var(--ink-1)', fontWeight: 500 }}>{p.label}</div>
-                  <div style={{ fontSize: 11, color: 'var(--ink-5)' }}>{p.hint}</div>
-                </span>
-              </div>
-            ))}
+            {FIELD_GROUPS.map((g) => {
+              const open = openGroups.includes(g.name)
+              return (
+                <div key={g.name} style={{ marginBottom: 6 }}>
+                  <button
+                    onClick={() => setOpenGroups((cur) => (open ? cur.filter((n) => n !== g.name) : [...cur, g.name]))}
+                    aria-expanded={open}
+                    style={{
+                      width: '100%', display: 'flex', alignItems: 'center', gap: 8,
+                      border: '1px solid var(--line)', background: open ? 'var(--app-sunken)' : 'var(--app-panel)',
+                      borderRadius: 'var(--ra-2)', padding: '8px 10px', cursor: 'pointer',
+                      font: 'inherit', fontSize: 12.5, fontWeight: 600, color: 'var(--ink-1)', textAlign: 'left',
+                    }}
+                  >
+                    <span style={{
+                      display: 'inline-flex', transition: 'transform .12s ease',
+                      transform: open ? 'rotate(90deg)' : 'none', color: 'var(--ink-4)',
+                    }}><FieldIcon kind="chevron" size={12} /></span>
+                    <span style={{ flex: 1 }}>{g.name}</span>
+                    <span className="muted" style={{ fontSize: 10.5 }}>{g.types.length}</span>
+                  </button>
+                  {open && (
+                    <div style={{ padding: '6px 0 2px 6px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {g.types.map((t) => {
+                        const p = FIELD_PALETTE.find((x) => x.type === t)!
+                        return (
+                          <div
+                            key={p.type}
+                            draggable
+                            onDragStart={(e) => setPayload(e, { kind: 'palette-field', type: p.type })}
+                            onClick={() => {
+                              const f = newField(p.type)
+                              patchRows((rows) => [...rows, { id: uid(), slots: [f] }])
+                              setSelectedId(f.id)
+                            }}
+                            title="Drag into a slot or onto the canvas (or click to append)"
+                            style={{ display: 'flex', alignItems: 'center', gap: 10, border: '1px solid var(--line)', background: 'var(--app-panel)', cursor: 'grab', borderRadius: 'var(--ra-2)', padding: '7px 10px' }}
+                          >
+                            <span style={{ width: 20, display: 'inline-flex', justifyContent: 'center', color: 'var(--ink-3)' }}><FieldIcon kind={p.type} /></span>
+                            <span>
+                              <div style={{ fontSize: 13, color: 'var(--ink-1)', fontWeight: 500 }}>{p.label}</div>
+                              <div style={{ fontSize: 11, color: 'var(--ink-5)' }}>{p.hint}</div>
+                            </span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
         </div>
 
         {/* RIGHT: canvas */}
         <div>
-          {/* System fields — locked */}
+          {/* System fields — locked; they describe the EVENT record itself, so
+              they only apply to the intake form. */}
+          {meta.key === 'EVENT_INTAKE' && (
           <div className="card" style={{ marginBottom: 12, background: 'var(--app-sunken)' }}>
             <div className="card__body" style={{ padding: '14px 16px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                 <span className="eyebrow">System fields</span>
-                <span className="badge">🔒 always collected</span>
+                <span className="badge" style={{ gap: 6 }}>
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <rect x="5" y="11" width="14" height="10" rx="2" />
+                    <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+                  </svg>
+                  Always collected
+                </span>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: 8 }}>
                 {SYSTEM_FIELDS.map((sf) => (
@@ -464,26 +1066,9 @@ export default function FormBuilder() {
               </div>
             </div>
           </div>
+          )}
 
-          {preview ? (
-            /* Rendered preview in the exact row layout */
-            <div className="card">
-              <div style={{ background: 'var(--bofa-navy)', color: '#fff', padding: '14px 18px' }}>
-                <div style={{ fontSize: 11, opacity: 0.8, letterSpacing: '0.04em', textTransform: 'uppercase' }}>Preview · New event</div>
-                <div style={{ fontFamily: 'var(--font-display)', fontSize: 18, marginTop: 2 }}>What recruiters will fill</div>
-              </div>
-              <div className="card__body" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                {form.rows.map((r) => (
-                  <div key={r.id} style={{ display: 'grid', gridTemplateColumns: `repeat(${r.slots.length}, minmax(0, 1fr))`, gap: 14 }}>
-                    {r.slots.map((slot, i) => (
-                      <div key={i}>{slot ? <IntakePreviewField f={slot} /> : <div style={{ fontSize: 12, color: 'var(--ink-5)' }}>Empty slot</div>}</div>
-                    ))}
-                  </div>
-                ))}
-                {form.rows.length === 0 && <div style={{ fontSize: 12.5, color: 'var(--ink-5)', textAlign: 'center', padding: '18px 0' }}>No fields yet.</div>}
-              </div>
-            </div>
-          ) : (
+          {(
             /* Editable canvas */
             <div
               onDragOver={(e) => e.preventDefault()}
@@ -493,6 +1078,7 @@ export default function FormBuilder() {
                 const p = getPayload(e)
                 if (p) dropAt(form.rows.length, p)
               }}
+              onClick={() => setSelectedId(null)}
               style={{ minHeight: 220 }}
             >
               <InsertZone onDropPayload={(p) => dropAt(0, p)} hint="Drop to insert row" />
@@ -513,14 +1099,21 @@ export default function FormBuilder() {
                     <div style={{ flex: 1, display: 'grid', gridTemplateColumns: `repeat(${row.slots.length}, minmax(0, 1fr))`, gap: 10 }}>
                       {row.slots.map((slot, si) =>
                         slot ? (
-                          <FieldCard
+                          <CanvasField
                             key={slot.id}
                             f={slot}
-                            onChange={(nf) => setSlot(row.id, si, nf)}
-                            onRemove={() => setSlot(row.id, si, null)}
+                            selected={slot.id === selectedId}
+                            onSelect={() => setSelectedId(slot.id)}
+                            onDuplicate={() => duplicateField(slot.id)}
+                            onRemove={() => removeField(slot.id)}
                           />
                         ) : (
-                          <EmptySlot key={`empty-${si}`} wide={row.slots.length === 1} onDropField={(t) => setSlot(row.id, si, newField(t))} />
+                          <EmptySlot key={`empty-${si}`} wide={row.slots.length === 1}
+                            onDropField={(t) => {
+                              const f = newField(t)
+                              setSlot(row.id, si, f)
+                              setSelectedId(f.id)
+                            }} />
                         ),
                       )}
                     </div>
@@ -544,7 +1137,19 @@ export default function FormBuilder() {
             </div>
           )}
         </div>
+
+        {/* RIGHT: properties for the selected field */}
+        <div style={{ position: 'sticky', top: 12 }}>
+            <PropertiesPanel
+              field={selectedField}
+              onPatch={(patch) => selectedField && patchField(selectedField.id, patch)}
+              onDuplicate={() => selectedField && duplicateField(selectedField.id)}
+              onDelete={() => selectedField && removeField(selectedField.id)}
+            />
+
+        </div>
       </div>
+      )}
     </div>
   )
 }

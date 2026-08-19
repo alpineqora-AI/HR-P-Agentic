@@ -2,6 +2,13 @@ import { useMemo } from 'react'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './client'
 import type {
+  SchedulingOverview,
+  FormDefinitionDto,
+  FormMeta,
+  FormResponseRow,
+  School,
+  EventRegistration,
+  RegisterAttendeeInput,
   AnalyticsSummary,
   ApplicationRow,
   Assessment,
@@ -140,6 +147,184 @@ export function useSlots(jobId: string | undefined) {
     queryKey: qk.slots(jobId),
     queryFn: () => api.get<Slot[]>('/slots', { params: { jobId } }).then((r) => r.data),
   })
+}
+
+// Calendar-driven scheduling actions (ported from the VMS engine). All of them
+// change interview + slot state, so invalidate both families broadly.
+function useSchedulingMutation<TArg>(fn: (arg: TArg) => Promise<unknown>) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: fn,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['interviews'] })
+      qc.invalidateQueries({ queryKey: ['slots'] })
+      qc.invalidateQueries({ queryKey: ['scheduling-overview'] })
+    },
+  })
+}
+
+/** Recruiter one-click: offer times computed from the hiring team's calendars.
+ *  Pass interviewerUserIds to set/replace the panel first. */
+export function useProposeTimes() {
+  return useSchedulingMutation(({ interviewId, interviewerUserIds }: { interviewId: string; interviewerUserIds?: string[] }) =>
+    api.post(`/interviews/${interviewId}/propose`, interviewerUserIds ? { interviewerUserIds } : {}))
+}
+
+/** The cross-job scheduling radar: what's stuck, what's today, who's loaded. */
+export function useSchedulingOverview() {
+  return useQuery({
+    queryKey: ['scheduling-overview'],
+    queryFn: () => api.get<SchedulingOverview>('/scheduling/overview').then((r) => r.data),
+    refetchInterval: 15_000,
+  })
+}
+
+/** Free the booked time and immediately re-offer fresh options. */
+export function useRescheduleInterview() {
+  return useSchedulingMutation((interviewId: string) => api.post(`/interviews/${interviewId}/reschedule`))
+}
+
+/** COMPLETED | CANCELED | NO_SHOW. */
+export function useTransitionInterview() {
+  return useSchedulingMutation(({ interviewId, status }: { interviewId: string; status: string }) =>
+    api.post(`/interviews/${interviewId}/transition`, { status }))
+}
+
+/** The options currently awaiting the candidate for an interview. */
+export function useProposedSlots(interviewId: string | undefined) {
+  return useQuery({
+    enabled: !!interviewId,
+    queryKey: ['proposed-slots', interviewId],
+    queryFn: () => api.get<Slot[]>(`/interviews/${interviewId}/proposed-slots`).then((r) => r.data),
+  })
+}
+
+// ---- Forms (purpose-keyed definitions + responses) ----
+
+export function useFormDefinition(purpose: string) {
+  return useQuery({
+    queryKey: ['form', purpose],
+    queryFn: () => api.get<FormDefinitionDto>(`/forms/${purpose}`).then((r) => r.data),
+  })
+}
+
+export function useSaveFormDefinition() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ purpose, name, schema }: { purpose: string; name: string; schema: string }) =>
+      api.put(`/forms/${purpose}`, { name, schema }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['form'] }),
+  })
+}
+
+export function useSubmitFormResponse() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ purpose, subjectType, subjectId, answers, formId }: { purpose: string; subjectType: string; subjectId: string; answers: string; formId?: string }) =>
+      api.post(`/forms/${purpose}/responses`, { subjectType, subjectId, answers, formId }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['form-responses'] }),
+  })
+}
+
+// ---- Form library (many named forms per kind + templates) ----
+
+export function useFormsList() {
+  return useQuery({
+    queryKey: ['form-defs'],
+    queryFn: () => api.get<FormMeta[]>('/form-defs').then((r) => r.data),
+  })
+}
+
+export function useFormDefById(id: string | undefined) {
+  return useQuery({
+    enabled: !!id,
+    queryKey: ['form-def', id],
+    queryFn: () => api.get<FormDefinitionDto>(`/form-defs/${id}`).then((r) => r.data),
+  })
+}
+
+function useLibraryMutation<TArg>(fn: (arg: TArg) => Promise<unknown>) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: fn,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['form-defs'] })
+      qc.invalidateQueries({ queryKey: ['form-def'] })
+      qc.invalidateQueries({ queryKey: ['form'] })
+    },
+  })
+}
+
+export function useCreateForm() {
+  return useLibraryMutation((input: { purpose: string; name: string; fromFormId?: string; template?: boolean }) =>
+    api.post<FormDefinitionDto>('/form-defs', input).then((r) => r.data))
+}
+
+export function useUpdateFormDef() {
+  return useLibraryMutation(({ id, name, schema }: { id: string; name: string; schema: string }) =>
+    api.put(`/form-defs/${id}`, { name, schema }))
+}
+
+export function useSaveAsTemplate() {
+  return useLibraryMutation(({ id, name }: { id: string; name: string }) =>
+    api.post(`/form-defs/${id}/save-as-template`, { name }))
+}
+
+export function useMakeDefaultForm() {
+  return useLibraryMutation((id: string) => api.post(`/form-defs/${id}/make-default`))
+}
+
+export function useDeleteForm() {
+  return useLibraryMutation((id: string) => api.delete(`/form-defs/${id}`))
+}
+
+export function useFormResponses(subjectType: string, subjectId: string | undefined) {
+  return useQuery({
+    enabled: !!subjectId,
+    queryKey: ['form-responses', subjectType, subjectId],
+    queryFn: () => api.get<FormResponseRow[]>('/form-responses', { params: { subjectType, subjectId } }).then((r) => r.data),
+  })
+}
+
+// ---- Campus: schools + event rosters ----
+
+export function useSchools() {
+  return useQuery({
+    queryKey: ['schools'],
+    queryFn: () => api.get<School[]>('/schools').then((r) => r.data),
+  })
+}
+
+export function useEventRoster(eventId: string | undefined) {
+  return useQuery({
+    enabled: !!eventId,
+    queryKey: ['event-roster', eventId],
+    queryFn: () => api.get<EventRegistration[]>(`/events/${eventId}/registrations`).then((r) => r.data),
+  })
+}
+
+function useRosterMutation<TArg>(fn: (arg: TArg) => Promise<unknown>) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: fn,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['event-roster'] })
+      qc.invalidateQueries({ queryKey: ['events'] })
+      qc.invalidateQueries({ queryKey: ['candidates'] })
+    },
+  })
+}
+
+/** Pre-registration or booth walk-in — also materializes the candidate. */
+export function useRegisterAttendee() {
+  return useRosterMutation(({ eventId, input }: { eventId: string; input: RegisterAttendeeInput }) =>
+    api.post(`/events/${eventId}/registrations`, input))
+}
+
+/** CHECKED_IN | NO_SHOW | REGISTERED */
+export function useRegistrationTransition() {
+  return useRosterMutation(({ registrationId, status }: { registrationId: string; status: string }) =>
+    api.post(`/event-registrations/${registrationId}/transition`, { status }))
 }
 
 // Pipelines for many jobs at once (jobs×stages matrix). /pipeline is per-job,

@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { defaultJobId } from '@/lib/jobs'
-import SlideOver from '@/components/SlideOver'
-import { useApplications, useJobInterviews, useJobs, useSlots } from '@/api/hooks'
+import SlideOver, { useSlideOverClose } from '@/components/SlideOver'
+import { SchedulingRadar } from '@/components/SchedulingRadar'
+import { useApplications, useJobInterviews, useJobs, useProposeTimes, useRescheduleInterview, useSlots, useTransitionInterview } from '@/api/hooks'
 import { date } from '@/lib/format'
 import type { Interview, Slot } from '@/api/types'
 
@@ -10,8 +11,8 @@ const statusBadge = (status: string) => {
   const s = status.toUpperCase()
   if (s === 'COMPLETED' || s === 'DONE') return 'badge--ok'
   if (s === 'SCHEDULED' || s === 'CONFIRMED') return 'badge--info'
-  if (s === 'CANCELLED' || s === 'NO_SHOW') return 'badge--danger'
-  if (s === 'PENDING' || s === 'REQUESTED') return 'badge--warn'
+  if (s === 'CANCELLED' || s === 'CANCELED' || s === 'NO_SHOW') return 'badge--danger'
+  if (s === 'PENDING' || s === 'REQUESTED' || s === 'SLOTS_PROPOSED') return 'badge--warn'
   return ''
 }
 
@@ -22,6 +23,9 @@ const recBadge = (rec: string) => {
   if (r.includes('LEAN') || r === 'MAYBE') return 'badge--warn'
   return ''
 }
+
+const statusLabel = (status: string) =>
+  status === 'SLOTS_PROPOSED' ? 'AWAITING CANDIDATE' : status
 
 const time = (iso: string | null | undefined) => {
   if (!iso) return '—'
@@ -325,7 +329,7 @@ function EventDetail({ ev, onClose }: { ev: CalEvent; onClose: () => void }) {
             {iv ? iv.type : ev.kind === 'open' ? 'Open availability' : 'Booked slot'}
           </div>
         </div>
-        <button type="button" onClick={onClose} aria-label="Close" style={{ border: 0, background: 'none', cursor: 'pointer', fontSize: 20, lineHeight: 1, color: 'var(--ink-4)' }}>×</button>
+        <DetailClose fallback={onClose} />
       </div>
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
         <FactRow label="Date">{date(ev.start.toISOString())}</FactRow>
@@ -333,7 +337,10 @@ function EventDetail({ ev, onClose }: { ev: CalEvent; onClose: () => void }) {
         <FactRow label="Duration">{Math.round((ev.end.getTime() - ev.start.getTime()) / 60_000)} min</FactRow>
         {iv ? (
           <>
-            <FactRow label="Status"><span className={`badge ${statusBadge(iv.status)}`}>{iv.status || '—'}</span></FactRow>
+            <FactRow label="Status"><span className={`badge ${statusBadge(iv.status)}`}>{statusLabel(iv.status) || '—'}</span></FactRow>
+            {iv.meetingLink ? (
+              <FactRow label="Meeting"><a href={iv.meetingLink} target="_blank" rel="noreferrer">Teams link</a></FactRow>
+            ) : null}
             {iv.interviewers?.length ? <FactRow label="Interviewers">{iv.interviewers.join(', ')}</FactRow> : null}
             {iv.score ? <FactRow label="Score">{iv.score.toFixed(1)}</FactRow> : null}
             {iv.recommendation ? (
@@ -354,6 +361,16 @@ function EventDetail({ ev, onClose }: { ev: CalEvent; onClose: () => void }) {
         ) : null}
       </div>
     </SlideOver>
+  )
+}
+
+function DetailClose({ fallback }: { fallback: () => void }) {
+  const animated = useSlideOverClose()
+  return (
+    <button type="button" onClick={animated ?? fallback} aria-label="Close"
+      style={{ border: 0, background: 'none', cursor: 'pointer', fontSize: 20, lineHeight: 1, color: 'var(--ink-4)' }}>
+      ×
+    </button>
   )
 }
 
@@ -527,6 +544,7 @@ function ScheduledTable({
             <th className="t-right">Score</th>
             <th>Recommendation</th>
             <th>Summary</th>
+            <th className="t-right">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -535,12 +553,24 @@ function ScheduledTable({
               <td className="t-strong">{nameByApp[iv.applicationId] || '—'}</td>
               <td>{iv.type}</td>
               <td>
-                {date(iv.scheduledAt)}
-                <span className="t-muted"> · {time(iv.scheduledAt)}</span>
+                {iv.scheduledAt ? (
+                  <>
+                    {date(iv.scheduledAt)}
+                    <span className="t-muted"> · {time(iv.scheduledAt)}</span>
+                    {iv.meetingLink ? (
+                      <>
+                        {' '}
+                        <a href={iv.meetingLink} target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>Teams</a>
+                      </>
+                    ) : null}
+                  </>
+                ) : (
+                  <span className="t-muted">Candidate picking a time…</span>
+                )}
               </td>
               <td className="t-right t-num">{iv.durationMin ? `${iv.durationMin}m` : '—'}</td>
               <td>
-                <span className={`badge ${statusBadge(iv.status)}`}>{iv.status || '—'}</span>
+                <span className={`badge ${statusBadge(iv.status)}`}>{statusLabel(iv.status) || '—'}</span>
               </td>
               <td className="t-muted">{iv.interviewers?.length ? iv.interviewers.join(', ') : '—'}</td>
               <td className="t-right t-num">{iv.score ? iv.score.toFixed(1) : '—'}</td>
@@ -552,12 +582,64 @@ function ScheduledTable({
                 )}
               </td>
               <td style={{ maxWidth: 320, color: 'var(--ink-3)' }}>{iv.summary || '—'}</td>
+              <td className="t-right"><InterviewActions iv={iv} /></td>
             </tr>
           ))}
         </tbody>
       </table>
     </div>
   )
+}
+
+// Recruiter one-click scheduling actions, driven by the interview lifecycle:
+// REQUESTED -> "Suggest times" | SLOTS_PROPOSED -> "Re-propose" | SCHEDULED ->
+// Reschedule / Complete / No-show / Cancel. All server-side via the calendar engine.
+function InterviewActions({ iv }: { iv: Interview }) {
+  const propose = useProposeTimes()
+  const reschedule = useRescheduleInterview()
+  const transition = useTransitionInterview()
+  const busy = propose.isPending || reschedule.isPending || transition.isPending
+  const btn = { fontSize: 12, padding: '3px 8px' } as const
+  const status = (iv.status || '').toUpperCase()
+
+  if (status === 'REQUESTED') {
+    return (
+      <button className="btn btn--outline btn--sm" style={btn} disabled={busy} onClick={() => propose.mutate(iv.id)}>
+        Suggest times
+      </button>
+    )
+  }
+  if (status === 'SLOTS_PROPOSED') {
+    return (
+      <button className="btn btn--outline btn--sm" style={btn} disabled={busy} onClick={() => propose.mutate(iv.id)}
+        title="Retract the current offer and compute fresh times from the team's calendars">
+        Re-propose
+      </button>
+    )
+  }
+  if (status === 'SCHEDULED') {
+    return (
+      <span style={{ display: 'inline-flex', gap: 6 }}>
+        <button className="btn btn--outline btn--sm" style={btn} disabled={busy} onClick={() => reschedule.mutate(iv.id)}
+          title="Free the time and re-offer fresh options to the candidate">
+          Reschedule
+        </button>
+        <button className="btn btn--outline btn--sm" style={btn} disabled={busy}
+          onClick={() => transition.mutate({ interviewId: iv.id, status: 'COMPLETED' })}>
+          Complete
+        </button>
+        <button className="btn btn--outline btn--sm" style={btn} disabled={busy}
+          onClick={() => transition.mutate({ interviewId: iv.id, status: 'NO_SHOW' })}>
+          No-show
+        </button>
+        <button className="btn btn--outline btn--sm" style={btn} disabled={busy}
+          onClick={() => transition.mutate({ interviewId: iv.id, status: 'CANCELED' })}>
+          Cancel
+        </button>
+      </span>
+    )
+  }
+  return <span className="t-muted">—</span>
 }
 
 function SlotsList({ slots, isLoading }: { slots: Slot[] | undefined; isLoading: boolean }) {
@@ -638,6 +720,9 @@ export default function InterviewsPage() {
           </div>
         </div>
       </div>
+
+      {/* Cross-job radar: what's stuck, what's today, who's loaded. */}
+      <SchedulingRadar />
 
       <div className="toolbar" style={{ marginBottom: 18 }}>
         <select

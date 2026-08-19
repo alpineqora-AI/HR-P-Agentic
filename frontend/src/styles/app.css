@@ -162,7 +162,7 @@ a {
   font-size: 0;
   overflow: hidden;
 }
-.app--collapsed .app__side > div:first-child .nav-group {
+.app--collapsed .app__side > .nav-group {
   display: none;
 }
 
@@ -262,6 +262,14 @@ button.card:hover {
 }
 .app__side {
   background: var(--bofa-navy-deep);
+  display: flex;
+  flex-direction: column;
+}
+/* Locked footer: Settings pinned to the rail's bottom on every screen. */
+.app__side .nav-foot {
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
 }
 .app__side .nav-group {
   color: rgba(255, 255, 255, 0.52);
@@ -290,4 +298,150 @@ button.card:hover {
 .app__side .nav-item .count {
   background: rgba(255, 255, 255, 0.14);
   color: rgba(255, 255, 255, 0.8);
+}
+
+/* ---- Floating nav card ----
+   The white brand cell stays flush with the top bar (one continuous chrome
+   band across the top), and only the navy nav floats below it as a rounded
+   card — matching the floating SlideOver drawers.
+   Track = 262px (250 card + 12 gutter); collapsed = 78px (66 + 12). */
+.app {
+  grid-template-areas: "top top" "rail main";
+  grid-template-columns: 232px 1fr;
+}
+.app__topbrand {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  margin-right: 20px;
+}
+.app__topbrand .wordmark {
+  color: var(--ink-0);
+}
+.app__topbrand .wordmark small {
+  display: block;
+  color: var(--ink-4);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+/* Group pills — the primary navigation (Quixotic pattern). */
+.topnav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.topnav__pill {
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--ink-3);
+  padding: 7px 14px;
+  border-radius: 999px;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.topnav__pill:hover {
+  background: var(--app-sunken);
+  color: var(--ink-1);
+}
+.topnav__pill--active {
+  background: var(--bofa-navy);
+  color: #fff;
+}
+.app--collapsed {
+  grid-template-columns: 78px 1fr;
+}
+.app__rail {
+  grid-area: rail;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.app__rail .app__side {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  border-right: 0;
+  margin: 12px 0 12px 12px;
+  border-radius: 18px;
+  box-shadow: 0 10px 32px rgba(16, 22, 38, 0.18), 0 2px 8px rgba(16, 22, 38, 0.1);
+}
+.app__side-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.app__side-pin {
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+  margin-top: 8px;
+  padding-top: 8px;
+}
+
+/* Overlays (SlideOver drawers, the approval canvas) read these to sit level
+   with the floating cards — i.e. below the top chrome band and beside the
+   rail. Absent outside the shell. */
+.app {
+  --shell-chrome-h: 60px;
+  --shell-rail-w: 232px;
+}
+.app--collapsed {
+  --shell-rail-w: 78px;
+}
+
+/* ---- Floating content card ----
+   The main column floats like the nav card: same 12px gutters, same 18px
+   radius, so both share the exact top and bottom lines (the height-mismatch
+   fix). The shell behind them deepens a step so the cards read as cards. */
+.app {
+  background: #e2e7f0;
+}
+.app__main {
+  margin: 12px 12px 12px 12px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  box-shadow: 0 10px 32px rgba(16, 22, 38, 0.08), 0 2px 8px rgba(16, 22, 38, 0.05);
+}
+
+/* ---- Edge collapse handle ----
+   A pull-tab WELDED to the content card's left edge: same fill as the card,
+   the card's hairline border continues around its bulge, and the right side
+   is open so tab and card merge into one shape (the card's outline simply
+   bulges out). Anchored to the rail so it rides the collapse animation. */
+.app__rail {
+  position: relative;
+}
+.app__collapse-handle {
+  position: absolute;
+  top: 40px; /* 12px gutter + 28px into the card (rail starts below the band) */
+  right: -13px; /* right edge overlaps the card's 1px border and merges */
+  width: 14px;
+  height: 44px;
+  border-radius: 999px 0 0 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: var(--app-bg); /* the content card's own fill */
+  border: 1px solid var(--line);
+  border-right: 0;
+  color: var(--ink-4);
+  cursor: pointer;
+  z-index: 40;
+  transition: color 0.14s ease, width 0.14s ease;
+}
+.app__collapse-handle .ic {
+  width: 13px;
+  height: 13px;
+}
+.app__collapse-handle:hover {
+  color: var(--bofa-navy);
+  width: 18px;
 }

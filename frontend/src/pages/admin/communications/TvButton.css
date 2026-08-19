@@ -1,0 +1,239 @@
+/* Teammate Voices Button Component Styles */
+
+.tv-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-weight: 500;
+  border-radius: 980px;
+  border: none;
+  cursor: pointer;
+  transition: all 250ms cubic-bezier(0.4, 0.0, 0.2, 1);
+  outline: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Sizes */
+.tv-button--sm {
+  height: 36px;
+  padding: 0 20px;
+  font-size: 14px;
+  line-height: 20px;
+  letter-spacing: -0.16px;
+}
+
+.tv-button--md {
+  height: 44px;
+  padding: 0 28px;
+  font-size: 15px;
+  line-height: 22px;
+  letter-spacing: -0.32px;
+}
+
+.tv-button--lg {
+  height: 50px;
+  padding: 0 32px;
+  font-size: 17px;
+  line-height: 24px;
+  letter-spacing: -0.41px;
+}
+
+/* Primary Variant */
+.tv-button--primary {
+  background: #012169;
+  color: #FFFFFF;
+}
+
+.tv-button--primary:hover:not(:disabled) {
+  background: #001a4d;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(1, 33, 105, 0.35);
+}
+
+.tv-button--primary:active:not(:disabled) {
+  background: #001030;
+  transform: translateY(0);
+}
+
+/* Secondary Variant */
+.tv-button--secondary {
+  background: #FFFFFF;
+  color: #012169;
+  border: 1px solid #012169;
+}
+
+.tv-button--secondary:hover:not(:disabled) {
+  background: #e8f0fe;
+  border-color: #3a6fbf;
+  color: #012169;
+  transform: translateY(-1px);
+}
+
+.tv-button--secondary:active:not(:disabled) {
+  background: rgba(1, 33, 105, 0.12);
+  transform: translateY(0);
+}
+
+/* Tertiary Variant */
+.tv-button--tertiary {
+  background: #F2F2F7;
+  color: #000000;
+}
+
+.tv-button--tertiary:hover:not(:disabled) {
+  background: #E5E5EA;
+  transform: translateY(-1px);
+}
+
+.tv-button--tertiary:active:not(:disabled) {
+  background: #D1D1D6;
+  transform: translateY(0);
+}
+
+/* Destructive Variant */
+.tv-button--destructive {
+  background: #CC0000;
+  color: #FFFFFF;
+}
+
+.tv-button--destructive:hover:not(:disabled) {
+  background: #A30000;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(204, 0, 0, 0.35);
+}
+
+.tv-button--destructive:active:not(:disabled) {
+  background: #8B0000;
+  transform: translateY(0);
+}
+
+/* Ghost Variant */
+.tv-button--ghost {
+  background: transparent;
+  color: #012169;
+}
+
+.tv-button--ghost:hover:not(:disabled) {
+  background: rgba(1, 33, 105, 0.08);
+}
+
+.tv-button--ghost:active:not(:disabled) {
+  background: rgba(1, 33, 105, 0.14);
+}
+
+/* States */
+.tv-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none !important;
+}
+
+.tv-button:focus-visible {
+  outline: 2px solid #012169;
+  outline-offset: 2px;
+}
+
+/* Full Width */
+.tv-button--full-width {
+  width: 100%;
+}
+
+/* Loading State */
+.tv-button--loading .tv-button__text {
+  opacity: 0;
+}
+
+.tv-button__spinner {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tv-button__spinner-icon {
+  width: 20px;
+  height: 20px;
+  animation: spin 1s linear infinite;
+}
+
+.tv-button__spinner-circle {
+  stroke-dasharray: 60;
+  stroke-dashoffset: 45;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Icons */
+.tv-button__icon-before,
+.tv-button__icon-after {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+}
+
+/* Dark Mode */
+@media (prefers-color-scheme: dark) {
+  .tv-button--primary {
+    background: #4A90D9;
+  }
+
+  .tv-button--primary:hover:not(:disabled) {
+    background: #3A7BC8;
+  }
+
+  .tv-button--primary:active:not(:disabled) {
+    background: #2E66B0;
+  }
+
+  .tv-button--secondary {
+    background: rgba(120, 120, 128, 0.36);
+    color: #4A90D9;
+    border-color: #4A90D9;
+  }
+
+  .tv-button--secondary:hover:not(:disabled) {
+    background: rgba(120, 120, 128, 0.44);
+  }
+
+  .tv-button--secondary:active:not(:disabled) {
+    background: rgba(120, 120, 128, 0.52);
+  }
+
+  .tv-button--tertiary {
+    background: #1C1C1E;
+    color: #FFFFFF;
+  }
+
+  .tv-button--tertiary:hover:not(:disabled) {
+    background: #2C2C2E;
+  }
+
+  .tv-button--tertiary:active:not(:disabled) {
+    background: #3A3A3C;
+  }
+
+  .tv-button--ghost {
+    color: #4A90D9;
+  }
+
+  .tv-button--ghost:hover:not(:disabled) {
+    background: rgba(74, 144, 217, 0.1);
+  }
+
+  .tv-button--ghost:active:not(:disabled) {
+    background: rgba(74, 144, 217, 0.15);
+  }
+}

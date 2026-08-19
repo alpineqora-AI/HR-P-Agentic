@@ -1,0 +1,542 @@
+/* ---- Approval canvas (React Flow) aesthetics ---- */
+
+.wfc {
+  --wfc-navy: var(--bofa-navy, #012169);
+  --wfc-green: #1a9d55;
+  --wfc-amber: #c98a00;
+  --wfc-red: var(--bofa-red, #e31837);
+}
+
+/* canvas surface */
+.wfc .react-flow__pane {
+  background:
+    radial-gradient(circle at 1px 1px, rgba(1, 33, 105, 0.10) 1px, transparent 0) 0 0 / 22px 22px,
+    linear-gradient(180deg, #f7f8fb 0%, #f2f4f8 100%);
+}
+.wfc .react-flow__background { display: none; }
+
+/* nodes */
+.wfc-node {
+  width: 184px;
+  background: #fff;
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  border-radius: 14px;
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.05),
+    0 8px 24px -12px rgba(15, 23, 42, 0.18);
+  transition: box-shadow 140ms ease, transform 140ms ease, border-color 140ms ease;
+  /* NOT overflow:hidden — the connection ports sit just outside the card edge
+     and must stay visible and clickable. The rail rounds its own corners. */
+  font-size: 13px;
+}
+.wfc-node:hover {
+  box-shadow:
+    0 2px 4px rgba(15, 23, 42, 0.06),
+    0 14px 34px -12px rgba(15, 23, 42, 0.26);
+  transform: translateY(-1px);
+}
+.react-flow__node.selected .wfc-node {
+  border-color: var(--wfc-navy);
+  box-shadow:
+    0 0 0 3px rgba(1, 33, 105, 0.14),
+    0 14px 34px -12px rgba(15, 23, 42, 0.26);
+}
+
+.wfc-node__rail { position: absolute; inset: 0 auto 0 0; width: 4px; border-radius: 14px 0 0 14px; }
+
+.wfc-node__inner { display: flex; gap: 9px; padding: 9px 10px 9px 13px; align-items: flex-start; position: relative; }
+
+.wfc-node__icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+.wfc-node__icon svg { width: 13px; height: 13px; }
+
+.wfc-node__kicker {
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  margin-bottom: 1px;
+}
+.wfc-node__title { font-weight: 650; font-size: 12px; color: var(--ink-0, #10151d); line-height: 1.25; }
+.wfc-node__sub { font-size: 10px; color: var(--ink-4, #7a8494); margin-top: 2px; line-height: 1.35; }
+.wfc-node__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 5px;
+  padding: 1.5px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  background: var(--navy-050, #eef2fb);
+  color: var(--wfc-navy);
+}
+
+/* condition yes/no footer */
+.wfc-node__branches {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border-top: 1px solid rgba(15, 23, 42, 0.07);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.wfc-node__branches span { padding: 4px 0 5px; text-align: center; }
+.wfc-node__branches .yes { color: var(--wfc-green); border-right: 1px solid rgba(15, 23, 42, 0.07); }
+.wfc-node__branches .no { color: var(--wfc-red); }
+
+/* handles — visible connection PORTS. Drag from a bottom port to another
+   box's top port to connect the steps. */
+.wfc .react-flow__handle {
+  width: 15px;
+  height: 15px;
+  border-radius: 999px;
+  background: var(--wfc-navy);
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.35);
+  transition: background 120ms ease, box-shadow 120ms ease, border-color 120ms ease, opacity 120ms ease;
+  /* Ports stay hidden until you hover the box (or a connection is in progress),
+     keeping the canvas clean. They remain grabbable either way. */
+  opacity: 0;
+}
+.wfc .react-flow__node:hover .react-flow__handle,
+.wfc .react-flow__node.selected .react-flow__handle,
+.wfc:has(.react-flow__connection) .react-flow__handle {
+  opacity: 1;
+}
+/* the + glyph inside each port */
+.wfc .react-flow__handle::after {
+  content: '+';
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  color: #fff;
+  pointer-events: none;
+}
+/* generous invisible hit area so the port is easy to grab */
+.wfc .react-flow__handle::before {
+  content: '';
+  position: absolute;
+  inset: -9px;
+  border-radius: 999px;
+}
+.wfc .react-flow__handle:hover {
+  background: #2a52a8;
+  box-shadow: 0 0 0 4px rgba(1, 33, 105, 0.18), 0 1px 4px rgba(15, 23, 42, 0.35);
+}
+.wfc .react-flow__handle-top { top: -8px; }
+.wfc .react-flow__handle-bottom { bottom: -8px; }
+.wfc .react-flow__handle-left { left: -8px; }
+.wfc .react-flow__handle-right { right: -8px; }
+/* while dragging a connection: the origin port fills navy… */
+.wfc .react-flow__handle.connectingfrom {
+  background: #2a52a8;
+  box-shadow: 0 0 0 5px rgba(1, 33, 105, 0.22);
+}
+/* …and every prospective target port glows so you know where to land */
+.wfc .react-flow__handle.connectingto,
+.wfc .react-flow__handle.valid {
+  border-color: var(--wfc-green);
+}
+.wfc .react-flow__handle.connectingto,
+.wfc .react-flow__handle.valid {
+  background: var(--wfc-green);
+  box-shadow: 0 0 0 5px rgba(26, 157, 85, 0.25);
+}
+/* the in-progress connection line */
+.wfc .react-flow__connection-path {
+  stroke: var(--wfc-navy);
+  stroke-width: 2.4;
+  stroke-dasharray: 7 5;
+}
+/* condition branches: tint the YES / NO ports to match their labels */
+.wfc .react-flow__handle[data-handleid='yes'] { background: var(--wfc-green); }
+.wfc .react-flow__handle[data-handleid='no'] { background: var(--wfc-red); }
+
+/* edges */
+.wfc .react-flow__edge-path {
+  stroke: #93a1b8;
+  stroke-width: 1.8;
+}
+.wfc .react-flow__edge:hover .react-flow__edge-path,
+.wfc .react-flow__edge.selected .react-flow__edge-path {
+  stroke: var(--wfc-navy);
+  stroke-width: 2.2;
+}
+.wfc .react-flow__edge-textbg { fill: #fff; }
+.wfc .react-flow__edge-text { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; fill: #64748b; }
+.wfc .react-flow__connection-path { stroke: var(--wfc-navy); stroke-width: 2; stroke-dasharray: 6 4; }
+
+/* controls + minimap */
+.wfc .react-flow__controls {
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 6px 20px -8px rgba(15, 23, 42, 0.25);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+}
+.wfc .react-flow__controls-button {
+  background: #fff;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.07);
+  width: 30px;
+  height: 30px;
+}
+.wfc .react-flow__controls-button:hover { background: var(--navy-050, #eef2fb); }
+.wfc .react-flow__controls-button svg { fill: var(--wfc-navy); }
+.wfc .react-flow__minimap {
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 6px 20px -8px rgba(15, 23, 42, 0.25);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+/* editor chrome */
+.wfc-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--line, #e7e9ee);
+  background: #fff;
+}
+.wfc-top__meta { flex: 1; min-width: 0; }
+.wfc-top__kicker {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-4, #7a8494);
+}
+.wfc-top__title { font-size: 17px; font-weight: 700; color: var(--ink-0, #10151d); }
+
+.wfc-palette {
+  display: flex;
+  gap: 8px;
+  margin-right: 8px;
+  padding-right: 14px;
+  border-right: 1px solid var(--line, #e7e9ee);
+}
+.wfc-palette button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 13px;
+  border-radius: 999px;
+  border: 1px dashed rgba(1, 33, 105, 0.35);
+  background: #fff;
+  color: var(--wfc-navy);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.wfc-palette button:hover { background: var(--navy-050, #eef2fb); border-color: var(--wfc-navy); }
+.wfc-palette button svg { width: 14px; height: 14px; }
+
+/* inspector */
+.wfc-inspector {
+  width: 292px;
+  border-left: 1px solid var(--line, #e7e9ee);
+  background: #fff;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+.wfc-inspector__head {
+  padding: 14px 18px 12px;
+  border-bottom: 1px solid var(--line, #e7e9ee);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.wfc-inspector__body { padding: 16px 18px; display: flex; flex-direction: column; gap: 14px; }
+.wfc-inspector__empty {
+  padding: 26px 20px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--ink-4, #7a8494);
+}
+.wfc-inspector__empty b { color: var(--ink-1, #2a3342); }
+.wfc-inspector label { font-size: 11px; font-weight: 600; letter-spacing: 0.02em; color: var(--ink-3, #5a6472); display: block; }
+.wfc-inspector label .input, .wfc-inspector label .select { margin-top: 5px; width: 100%; }
+
+.wfc-legend {
+  margin-top: auto;
+  padding: 14px 18px 18px;
+  border-top: 1px solid var(--line, #e7e9ee);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--ink-4, #7a8494);
+}
+.wfc-legend__row { display: flex; align-items: center; gap: 8px; }
+.wfc-legend__dot { width: 9px; height: 9px; border-radius: 3px; flex: none; }
+
+/* ---- simulation: lit path + result panel ---- */
+
+.wfc-node--lit {
+  border-color: var(--wfc-green) !important;
+  box-shadow:
+    0 0 0 3px rgba(26, 157, 85, 0.22),
+    0 14px 34px -12px rgba(15, 23, 42, 0.26) !important;
+  animation: wfc-pop 300ms ease;
+}
+@keyframes wfc-pop {
+  0% { transform: scale(0.96); }
+  60% { transform: scale(1.03); }
+  100% { transform: scale(1); }
+}
+.wfc .react-flow__edge.wfc-edge--lit .react-flow__edge-path {
+  stroke: var(--wfc-green);
+  stroke-width: 2.6;
+  stroke-dasharray: 7 5;
+  animation: wfc-dash 700ms linear infinite;
+}
+@keyframes wfc-dash {
+  to { stroke-dashoffset: -12; }
+}
+
+.wfc-sim-result {
+  border: 1px solid var(--line, #e7e9ee);
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: #fafbfd;
+}
+.wfc-sim-result__verdict { font-size: 13px; font-weight: 700; }
+.wfc-sim-result__row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 12.5px;
+  color: var(--ink-1, #2a3342);
+  font-weight: 550;
+}
+.wfc-sim-result__step {
+  width: 19px;
+  height: 19px;
+  border-radius: 999px;
+  background: var(--navy-050, #eef2fb);
+  color: var(--wfc-navy);
+  font-size: 10.5px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+.wfc-sim-result__note { font-size: 11.5px; color: var(--ink-4, #7a8494); line-height: 1.45; }
+
+/* ---- mini flow preview (workflows tab) ---- */
+
+.wfs-strip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  border: 1px dashed var(--line-3, #d7dbe3);
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at 1px 1px, rgba(1, 33, 105, 0.08) 1px, transparent 0) 0 0 / 16px 16px,
+    #f8f9fc;
+}
+.wfs-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px 0 6px;
+  border-radius: 999px;
+  background: #fff;
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ink-1, #2a3342);
+  white-space: nowrap;
+}
+.wfs-pill__ic {
+  width: 17px;
+  height: 17px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+.wfs-pill__ic svg { width: 10px; height: 10px; }
+.wfs-pill__cond { font-weight: 500; color: var(--ink-4, #7a8494); font-size: 10.5px; }
+.wfs-arrow { color: #9aa6b8; flex: none; display: inline-flex; }
+.wfs-arrow svg { width: 13px; height: 13px; }
+
+/* ---- blocks palette (left panel, builder-style) ---- */
+.wfc-blocks {
+  width: 64px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--line, #e5e7eb);
+  background: #fbfcfe;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 12px;
+  overflow-y: auto;
+}
+.wfc-blocks__head {
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+}
+.wfc-blocks__grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.wfc-block {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 7px;
+  background: #fff;
+  border: 1px solid var(--line, #e2e6ee);
+  border-radius: 10px;
+  cursor: grab;
+  user-select: none;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+.wfc-block:hover {
+  border-color: #c7d3ea;
+  box-shadow: 0 4px 14px rgba(20, 40, 90, 0.08);
+  transform: translateY(-1px);
+}
+.wfc-block:active {
+  cursor: grabbing;
+}
+.wfc-block__icon {
+  /* Plain monochrome glyphs — bank theme, no colored chips. */
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-2, #3c4a5f);
+}
+.wfc-block:hover .wfc-block__icon {
+  color: var(--bofa-navy, #012169);
+}
+.wfc-block__icon svg {
+  width: 16px;
+  height: 16px;
+}
+.wfc-block__label {
+  display: none; /* icon-only rail — the name lives in the tooltip */
+}
+.wfc-blocks__hint {
+  display: none; /* icon-only rail — guidance moved to the inspector's empty state */
+}
+
+/* ---- email notification badge on an approval step ---- */
+.wfc-node {
+  position: relative;
+}
+.wfc-node__mail {
+  position: absolute;
+  top: -9px;
+  right: -9px;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: #7c3aed;
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid #fff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
+}
+.wfc-node__mail svg {
+  width: 11px;
+  height: 11px;
+}
+
+/* ---- inspector: section divider + heading ---- */
+.wfc-inspector__divider {
+  height: 1px;
+  background: var(--line, #e5e7eb);
+  margin: 2px 0;
+}
+.wfc-inspector__section {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* ---- content-card mode ----
+   The canvas covers exactly the shell's floating content card (not the whole
+   viewport), so the top band and left rail stay visible around it. Geometry
+   comes from the shell's vars; `left` transitions with the rail collapse so
+   the canvas rides the same animation as the card it replaces. */
+.wfc--card {
+  position: fixed;
+  top: calc(var(--shell-chrome-h, 0px) + 12px);
+  left: calc(var(--shell-rail-w, 0px) + 12px);
+  right: 12px;
+  bottom: 12px;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border: 1px solid var(--line, #e5e7eb);
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow: 0 10px 32px rgba(16, 22, 38, 0.08), 0 2px 8px rgba(16, 22, 38, 0.05);
+  transition: left 0.16s ease;
+}
+
+/* ---- drag-from-palette snap preview ---- */
+/* The edge a dragged block would splice into: navy marching dashes. */
+.wfc .react-flow__edge.wfc-edge--snap .react-flow__edge-path {
+  stroke: var(--wfc-navy);
+  stroke-width: 2.8;
+  stroke-dasharray: 7 5;
+  animation: wfc-dash 500ms linear infinite;
+}
+/* The approver box an email would attach to: navy focus ring. */
+.wfc .react-flow__node.wfc-nodesnap .wfc-node {
+  border-color: var(--wfc-navy);
+  box-shadow: 0 0 0 3px rgba(1, 33, 105, 0.18), 0 10px 24px rgba(15, 23, 42, 0.12);
+}
+
+/* ---- condition branch lines: YES green, NO red (matching their ports).
+   Sim lighting and snap preview take precedence while active. ---- */
+.wfc .react-flow__edge.wfc-edge--yes:not(.wfc-edge--lit):not(.wfc-edge--snap) .react-flow__edge-path {
+  stroke: var(--wfc-green);
+  stroke-width: 2;
+}
+.wfc .react-flow__edge.wfc-edge--no:not(.wfc-edge--lit):not(.wfc-edge--snap) .react-flow__edge-path {
+  stroke: var(--wfc-red);
+  stroke-width: 2;
+}

@@ -20,8 +20,10 @@ export const MODULES: ModuleDef[] = [
   { key: 'jobs', label: 'Jobs', group: 'Recruiting' },
   { key: 'pipeline', label: 'Pipeline', group: 'Recruiting' },
   { key: 'candidates', label: 'Candidates', group: 'Recruiting' },
+  { key: 'approvals', label: 'Approvals', group: 'Recruiting' },
   // Interview
   { key: 'interviews', label: 'Interviews', group: 'Interview' },
+  { key: 'availability', label: 'Availability', group: 'Interview' },
   { key: 'assessments', label: 'Assessments', group: 'Interview' },
   // Offer & Hire
   { key: 'offers', label: 'Offers', group: 'Offer & Hire' },
@@ -34,7 +36,7 @@ export const MODULES: ModuleDef[] = [
   { key: 'crm', label: 'Talent CRM', group: 'Engagement' },
   { key: 'campaigns', label: 'Nurture', group: 'Engagement' },
   { key: 'referrals', label: 'Referrals', group: 'Engagement' },
-  { key: 'events', label: 'Events & Campus', group: 'Engagement' },
+  { key: 'events', label: 'Campus', group: 'Engagement' },
   { key: 'surveys', label: 'Surveys', group: 'Engagement' },
   { key: 'copilot', label: 'AI Copilot', group: 'Engagement' },
   // Platform
@@ -133,7 +135,7 @@ const defaultConfig: ConfigShape = {
   currentUserId: 'u1',
 }
 
-const STORAGE_KEY = 'olivia.config.v1'
+const STORAGE_KEY = 'taportal.config.v1'
 
 function load(): ConfigShape {
   try {

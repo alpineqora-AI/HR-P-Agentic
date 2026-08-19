@@ -5,7 +5,7 @@ import { usePersistentState, uid } from './builderStore'
 import LogicTab, { type LogicRule } from './SurveyLogic'
 
 // Survey studio — an exact port of the Arya "Teammate Voices" survey editor
-// (packages/teammate-voices/src/pages/SurveyEditor.tsx) onto Olivia's design
+// (packages/teammate-voices/src/pages/SurveyEditor.tsx) onto the TA Portal's design
 // system: survey library (Program · Name · Summary · Cycle · Status columns),
 // six-tab editor (Details · Form Builder · Form Viewer · Configuration ·
 // Participants · Distribute), dual status pills (survey + build), Program
@@ -58,7 +58,7 @@ export interface SurveyV2 {
   updatedAt: string
 }
 
-export const SURVEYS_V2_KEY = 'olivia.surveysV2'
+export const SURVEYS_V2_KEY = 'taportal.surveysV2'
 
 // Exact fallback program list from Teammate Voices' SurveyEditor.
 const FALLBACK_PROGRAMS = [
@@ -146,7 +146,7 @@ function normalize(s: Partial<SurveyV2> & { touchpoint?: string }): SurveyV2 {
 // One-time migration: old single-page builder surveys → V2 shape.
 function migrateOld(): SurveyV2[] {
   try {
-    const raw = localStorage.getItem('olivia.surveys')
+    const raw = localStorage.getItem('taportal.surveys')
     if (!raw) return [freshSurvey()]
     const olds = JSON.parse(raw)
     if (!Array.isArray(olds) || olds.length === 0) return [freshSurvey()]
@@ -739,7 +739,7 @@ interface StepConfig { templateId: string; delayDays: number }
 
 function readCommTemplates(): { id: string; name: string }[] {
   try {
-    const raw = localStorage.getItem('olivia.emailTemplates')
+    const raw = localStorage.getItem('taportal.emailTemplates')
     if (!raw) return []
     const v = JSON.parse(raw)
     return Array.isArray(v) ? v.map((t: { id: string; name: string }) => ({ id: t.id, name: t.name })) : []
@@ -751,7 +751,7 @@ function readCommTemplates(): { id: string; name: string }[] {
 function SurveyEmailConfig({ surveyId }: { surveyId: string }) {
   const [templates] = useState(readCommTemplates)
   const [configs, setConfigs] = usePersistentState<Record<string, StepConfig>>(
-    `olivia.surveyEmail.${surveyId}`,
+    `taportal.surveyEmail.${surveyId}`,
     Object.fromEntries(EMAIL_STEPS.map((st) => [st.trigger, { templateId: '', delayDays: st.defaultDelay }])),
   )
 
@@ -815,7 +815,7 @@ interface Check { key: string; label: string; passed: boolean; detail: string }
 function runChecks(s: SurveyV2): Check[] {
   const email = (() => {
     try {
-      const raw = localStorage.getItem(`olivia.surveyEmail.${s.id}`)
+      const raw = localStorage.getItem(`taportal.surveyEmail.${s.id}`)
       return raw ? (JSON.parse(raw) as Record<string, StepConfig>) : {}
     } catch { return {} }
   })()

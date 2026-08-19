@@ -55,13 +55,18 @@ export default function CandidateDetailPage() {
   return (
     <div>
       <div className="page-head" style={{ marginBottom: 20 }}>
-        <div className="crumb">
-          <span className="dot" />
-          <Link to="/candidates" className="link" style={{ fontSize: 11, letterSpacing: 'inherit' }}>
-            Candidates
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          <div className="crumb">
+            <span className="dot" />
+            <Link to="/candidates" className="link" style={{ fontSize: 11, letterSpacing: 'inherit' }}>
+              Candidates
+            </Link>
+            <span style={{ color: 'var(--ink-5)' }}>/</span>
+            {c.lifecycle}
+          </div>
+          <Link to="/candidates" className="btn btn--outline btn--sm">
+            ‹ Back to candidates
           </Link>
-          <span style={{ color: 'var(--ink-5)' }}>/</span>
-          {c.lifecycle}
         </div>
       </div>
 

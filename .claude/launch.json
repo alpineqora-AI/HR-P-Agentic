@@ -2,11 +2,17 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "olivia-frontend",
+      "name": "taportal-frontend",
       "runtimeExecutable": "/Users/alpineqora/.vms-tools/run-frontend.sh",
       "runtimeArgs": [],
       "port": 5177,
       "cwd": "frontend"
+    },
+    {
+      "name": "taportal-backend",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-lc", "cd \"/Users/alpineqora/Library/Mobile Documents/com~apple~CloudDocs/AI Projects/HR - P (Agentic) /backend\" && JAVA_HOME=\"$HOME/.vms-tools/jdk/Contents/Home\" exec \"$HOME/.gradle/wrapper/dists/gradle-8.14.4-bin/92wwslzcyst3phie3o264zltu/gradle-8.14.4/bin/gradle\" bootRun"],
+      "port": 8092
     }
   ]
 }

@@ -1,6 +1,6 @@
 spring:
   application:
-    name: olivia
+    name: taportal
   datasource:
     url: jdbc:postgresql://localhost:5435/hr_dev
     username: vms

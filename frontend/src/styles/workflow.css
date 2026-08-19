@@ -1,0 +1,62 @@
+/* Lifted from AlpineQora-Labs/VMS ds-product.css — the workflow mini-flow strip,
+   switch, check and field styles used by the approval workflow builder. */
+
+
+.field { display: flex; flex-direction: column; gap: 7px; }
+
+.field__label {
+  font-family: var(--font-sans); font-size: 13px; font-weight: 600; color: var(--ink-1);
+  display: flex; align-items: center; gap: 6px;
+}
+
+.field__label .req { color: var(--bofa-red); }
+
+.field__label .opt { font-weight: 400; color: var(--ink-4); font-size: 12px; }
+
+.field--error .input, .field--error .select, .field--error .textarea { border-color: var(--danger-fg); }
+
+.field--error .input:focus { box-shadow: 0 0 0 3px var(--danger-line); }
+
+.field__help { font-size: 12px; color: var(--ink-4); }
+
+.field--error .field__help { color: var(--danger-fg); }
+
+.check { display: inline-flex; align-items: center; gap: 9px; font-size: 14px; color: var(--ink-1); cursor: pointer; }
+
+.check input { width: 18px; height: 18px; accent-color: var(--bofa-navy); cursor: pointer; }
+
+.switch { position: relative; width: 40px; height: 22px; flex: none; display: inline-block; }
+
+.switch input { opacity: 0; width: 0; height: 0; }
+
+.switch .track {
+  position: absolute; inset: 0; background: var(--line-3); border-radius: 999px;
+  transition: background var(--dur-base) var(--ease-out);
+}
+
+.switch .track::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px;
+  background: #fff; border-radius: 50%; box-shadow: 0 1px 2px rgba(14,26,51,0.3);
+  transition: transform var(--dur-base) var(--ease-out);
+}
+
+.switch input:checked + .track { background: var(--bofa-navy); }
+
+.switch input:checked + .track::after { transform: translateX(18px); }
+
+/* Editable workflow name in the card head — reads as a heading, edits in place. */
+.wf-name-input {
+  font-family: var(--font-sans);
+  font-size: 16px;
+  font-weight: 650;
+  color: var(--ink-0);
+  border: none;
+  border-bottom: 1px dashed transparent;
+  background: transparent;
+  outline: none;
+  padding: 2px 0;
+  min-width: 120px;
+  width: 240px;
+}
+.wf-name-input:hover { border-bottom-color: var(--line, #d8dce6); }
+.wf-name-input:focus { border-bottom-color: var(--bofa-navy); }

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useCandidate, useCandidates, useJobInterviews } from '../api/hooks'
+import SlideOver, { useSlideOverClose } from '../components/SlideOver'
 import AriaConversations from '@/components/AriaConversations'
 import type { CandidateSummary } from '../api/types'
 import { date, humanize, initials } from '../lib/format'
@@ -60,11 +61,14 @@ function Fact({ label, children }: { label: string; children: React.ReactNode })
 type Tab = 'overview' | 'applications' | 'interviews' | 'aria'
 
 // ── Right pane: the live record ─────────────────────────────────────────────
-function CandidateDetailPane({ summary, tab, setTab }: {
+function CandidateDetailPane({ summary, tab, setTab, frameless = false }: {
   summary: CandidateSummary
   tab: Tab
   setTab: (t: Tab) => void
+  /** Drawer mode: no card chrome (the SlideOver provides the frame) + a close button. */
+  frameless?: boolean
 }) {
+  const drawerClose = useSlideOverClose()
   const { data: c, isLoading } = useCandidate(summary.id)
   const skills = c?.skills ?? []
   const apps = c?.applications ?? []
@@ -81,7 +85,7 @@ function CandidateDetailPane({ summary, tab, setTab }: {
   ]
 
   return (
-    <div className="card" style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    <div className={frameless ? undefined : 'card'} style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '13px 16px 11px', borderBottom: '1px solid var(--line)' }}>
         <div className="avatar" style={{ width: 38, height: 38, fontSize: 13.5 }}>
           {initials(summary.name)}
@@ -101,6 +105,16 @@ function CandidateDetailPane({ summary, tab, setTab }: {
         <Link to={`/candidates/${summary.id}`} className="btn btn--outline btn--sm" style={{ flexShrink: 0 }}>
           Open full record
         </Link>
+        {frameless && (
+          <button
+            type="button"
+            onClick={() => drawerClose?.()}
+            aria-label="Close"
+            style={{ border: 0, background: 'none', cursor: 'pointer', fontSize: 20, color: 'var(--ink-4)', lineHeight: 1, padding: '2px 4px' }}
+          >
+            ×
+          </button>
+        )}
       </div>
 
       {/* Tab bar */}
@@ -270,12 +284,6 @@ export default function CandidatesPage() {
   const selected = rows.find((c) => c.id === sel) ?? null
   const setSel = (id: string) => setParams(id ? { sel: id } : {}, { replace: true })
 
-  // Land on the first visible candidate when nothing (valid) is selected.
-  useEffect(() => {
-    if (!selected && rows.length > 0) setSel(rows[0].id)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, selected])
-
   // ↑/↓ move the selection — the split view's superpower.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -304,7 +312,7 @@ export default function CandidatesPage() {
         <div className="page-head__row">
           <div>
             <h1 style={{ fontSize: 28 }}>Candidates</h1>
-            <p className="sub">Everyone in the talent pool — click through or use ↑↓ to move between records.</p>
+            <p className="sub">Everyone in the talent pool — click a row for the full record, ↑↓ moves between candidates.</p>
           </div>
           <div className="input-group" style={{ width: 280 }}>
             <input
@@ -341,68 +349,75 @@ export default function CandidatesPage() {
           </div>
         </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: '264px minmax(0, 1fr)', gap: 14, height: 'calc(100vh - 232px)', minHeight: 420 }}>
-          {/* Master list */}
-          <div className="card" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--line)' }}>
-              <span className="eyebrow">{rows.length} of {data.length} candidates</span>
-            </div>
-            <div style={{ flex: 1, overflowY: 'auto' }}>
-              {rows.length === 0 ? (
-                <div style={{ padding: '30px 14px', textAlign: 'center', fontSize: 12.5, color: 'var(--ink-4)' }}>
-                  No candidates match “{filter}”.
-                </div>
-              ) : (
-                rows.map((c) => {
-                  const active = c.id === sel
-                  return (
-                    <button
-                      key={c.id}
-                      id={`cand-${c.id}`}
-                      onClick={() => setSel(c.id)}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 10,
-                        width: '100%',
-                        textAlign: 'left',
-                        border: 0,
-                        cursor: 'pointer',
-                        font: 'inherit',
-                        padding: '7px 10px',
-                        background: active ? 'var(--navy-050)' : 'transparent',
-                        borderLeft: active ? '3px solid var(--bofa-navy)' : '3px solid transparent',
-                        borderBottom: '1px solid var(--line)',
-                      }}
-                    >
-                      <span className="avatar" style={{ width: 26, height: 26, fontSize: 10.5, flexShrink: 0 }}>{initials(c.name)}</span>
-                      <span style={{ flex: 1, minWidth: 0 }}>
-                        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{ fontSize: 12.5, fontWeight: 600, color: active ? 'var(--bofa-navy)' : 'var(--ink-0)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {c.name}
+        <>
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Candidate</th>
+                  <th>Lifecycle</th>
+                  <th>Source</th>
+                  <th>Location</th>
+                  <th className="t-right">Experience</th>
+                  <th className="t-right">Applications</th>
+                  <th>Top skills</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} style={{ textAlign: 'center', color: 'var(--ink-4)', padding: '34px 18px' }}>
+                      No candidates match “{filter}”.
+                    </td>
+                  </tr>
+                ) : (
+                  rows.map((c) => {
+                    const active = c.id === sel
+                    return (
+                      <tr
+                        key={c.id}
+                        id={`cand-${c.id}`}
+                        onClick={() => setSel(c.id)}
+                        aria-selected={active}
+                        style={{ cursor: 'pointer', background: active ? 'var(--navy-050)' : undefined }}
+                      >
+                        <td>
+                          <span className="who">
+                            <span className="avatar" style={{ width: 30, height: 30, fontSize: 11 }}>{initials(c.name)}</span>
+                            <span style={{ minWidth: 0 }}>
+                              <span className="t-strong" style={{ display: 'block' }}>{c.name}</span>
+                              <span className="t-muted" style={{ display: 'block', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 260 }}>
+                                {c.headline || '—'}
+                              </span>
+                            </span>
                           </span>
-                          <span className={`badge ${lifecycleClass(c.lifecycle)}`} style={{ flexShrink: 0 }}>{c.lifecycle}</span>
-                        </span>
-                        <span style={{ display: 'block', fontSize: 11, color: 'var(--ink-4)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 1 }}>
-                          {c.headline || humanize(c.source)}
-                        </span>
-                      </span>
-                    </button>
-                  )
-                })
-              )}
-            </div>
+                        </td>
+                        <td><span className={`badge ${lifecycleClass(c.lifecycle)}`}>{c.lifecycle}</span></td>
+                        <td className="t-muted">{humanize(c.source)}</td>
+                        <td className="t-muted">{c.location || '—'}</td>
+                        <td className="t-num t-right">{c.yearsExperience} yrs</td>
+                        <td className="t-num t-right">{c.applicationCount}</td>
+                        <td>
+                          <span style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                            {(c.topSkills ?? []).slice(0, 3).map((sk) => (
+                              <span key={sk} className="badge">{sk}</span>
+                            ))}
+                          </span>
+                        </td>
+                      </tr>
+                    )
+                  })
+                )}
+              </tbody>
+            </table>
           </div>
 
-          {/* Detail pane */}
-          {selected ? (
-            <CandidateDetailPane key={selected.id} summary={selected} tab={tab} setTab={setTab} />
-          ) : (
-            <div className="card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ink-4)', fontSize: 13.5 }}>
-              Select a candidate to see their record.
-            </div>
+          {selected && (
+            <SlideOver key={selected.id} label={`${selected.name} — candidate record`} onClose={() => setSel('')} width={440}>
+              <CandidateDetailPane summary={selected} tab={tab} setTab={setTab} frameless />
+            </SlideOver>
           )}
-        </div>
+        </>
       )}
     </div>
   )

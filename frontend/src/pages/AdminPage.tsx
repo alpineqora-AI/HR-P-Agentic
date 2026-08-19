@@ -1,21 +1,20 @@
-import { useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useStore } from '@/state/store'
 import ConfirmButton from '@/components/ConfirmButton'
 import SlideOver from '@/components/SlideOver'
 import { MODULES, PERMISSIONS, useConfig } from '@/state/config'
-import SurveyStudio from './admin/SurveyEditor'
 import { usePersistentState } from './admin/builderStore'
 import FormBuilder from './admin/FormBuilder'
-import EmailBuilder from './admin/EmailBuilder'
+import AdminWorkflows from './admin/approvals/AdminWorkflows'
+import { commsApi } from './admin/communications/commsApi'
 
-type Tab = 'users' | 'survey' | 'comms' | 'forms' | 'config'
+type Tab = 'users' | 'forms' | 'workflow' | 'config'
 
 const TABS: { key: Tab; label: string; blurb: string }[] = [
   { key: 'users', label: 'Users & Access', blurb: 'People, roles, and what each role can do' },
-  { key: 'survey', label: 'Survey', blurb: 'Design candidate-experience surveys' },
-  { key: 'comms', label: 'Communication', blurb: 'Templates for every candidate touchpoint' },
   { key: 'forms', label: 'Forms', blurb: 'Intake forms that feed event creation' },
+  { key: 'workflow', label: 'Workflow', blurb: 'Approval workflows — the visual builder + rules engine' },
   { key: 'config', label: 'Configuration', blurb: 'Workspace settings and module access' },
 ]
 
@@ -187,24 +186,9 @@ function UsersAndAccess() {
   )
 }
 
-/** Communication: channel templates. Email today; SMS & notifications later. */
-function Communication() {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div className="tabs">
-        <button className="tab" aria-selected>Email</button>
-        <button className="tab" disabled title="Coming soon" style={{ opacity: 0.45, cursor: 'default' }}>SMS</button>
-        <button className="tab" disabled title="Coming soon" style={{ opacity: 0.45, cursor: 'default' }}>Notifications</button>
-      </div>
-      <EmailBuilder />
-    </div>
-  )
-}
-
-/** Configuration: workspace identity + which modules the console shows. */
 function Configuration() {
   const { toggleModule, isModuleOn } = useConfig()
-  const [workspace, setWorkspace] = usePersistentState('olivia.workspace', {
+  const [workspace, setWorkspace] = usePersistentState('taportal.workspace', {
     name: 'Bank of America Careers',
     careerSiteUrl: 'http://localhost:5173',
   })
@@ -280,7 +264,7 @@ function storedCount(key: string): number {
 // The intake form persists as { rows: [{ slots: [...] }] } (older: { fields }).
 function intakeFieldCount(): number {
   try {
-    const raw = localStorage.getItem('olivia.eventIntakeForm')
+    const raw = localStorage.getItem('taportal.eventIntakeForm')
     if (!raw) return 6 // default form ships with 6 fields
     const v = JSON.parse(raw)
     if (Array.isArray(v?.rows)) return v.rows.reduce((n: number, r: { slots?: unknown[] }) => n + (r.slots ?? []).filter(Boolean).length, 0)
@@ -293,31 +277,37 @@ function intakeFieldCount(): number {
 /** Hub landing: one tile per Admin component. Adding a component = adding a tile. */
 function AdminHub({ onOpen }: { onOpen: (t: Tab) => void }) {
   const { users, roles, isModuleOn } = useConfig()
+  const navigate = useNavigate()
   const admins = users.filter((u) => u.roleKey === 'admin').length
-  const surveys = storedCount('olivia.surveysV2') || storedCount('olivia.surveys')
-  const templates = storedCount('olivia.emailTemplates')
   const activeModules = MODULES.filter((m) => isModuleOn(m.key)).length
 
-  const tiles: { key: Tab; glyph: string; title: string; blurb: string; stat: string }[] = [
+  // Email templates live in the backend now (Communications component).
+  const [templateCount, setTemplateCount] = useState<number | null>(null)
+  useEffect(() => {
+    commsApi.getEmailTemplates().then((t) => setTemplateCount(t.length)).catch(() => setTemplateCount(null))
+  }, [])
+
+  // A tile either opens a ?tab= section (key) or routes to a sub-page (path).
+  const tiles: { key: Tab; glyph: string; title: string; blurb: string; stat: string; path?: string }[] = [
     {
       key: 'users', glyph: '👥', title: 'Users & Access',
       blurb: 'Invite teammates, assign roles, and control what each role is allowed to do.',
       stat: `${users.length} members · ${roles.length} roles · ${admins} admin${admins === 1 ? '' : 's'}`,
     },
     {
-      key: 'survey', glyph: '★', title: 'Survey',
-      blurb: 'Multi-page survey studio — ten question types, live preview, and a draft → publish → clone lifecycle.',
-      stat: `${surveys} survey${surveys === 1 ? '' : 's'}`,
-    },
-    {
-      key: 'comms', glyph: '✉', title: 'Communication',
-      blurb: 'Block-based templates with merge tags for every candidate touchpoint — email now, SMS and notifications next.',
-      stat: `${templates} email template${templates === 1 ? '' : 's'}`,
+      key: 'users', glyph: '✉', title: 'Communication', path: '/admin/communications',
+      blurb: 'Design branded email templates with merge fields, rich formatting, and a live preview.',
+      stat: templateCount === null ? 'Email templates' : `${templateCount} template${templateCount === 1 ? '' : 's'}`,
     },
     {
       key: 'forms', glyph: '▤', title: 'Forms',
       blurb: 'Design the intake recruiters fill when creating events — registration rules, targeting, ops.',
       stat: `${intakeFieldCount()} intake field${intakeFieldCount() === 1 ? '' : 's'}`,
+    },
+    {
+      key: 'workflow', glyph: '⑃', title: 'Workflow',
+      blurb: 'Design approval workflows on a visual canvas — triggers, conditions, approval levels, and a live simulator.',
+      stat: 'Approval workflows',
     },
     {
       key: 'config', glyph: '⚙', title: 'Configuration',
@@ -330,9 +320,9 @@ function AdminHub({ onOpen }: { onOpen: (t: Tab) => void }) {
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
       {tiles.map((t) => (
         <button
-          key={t.key}
+          key={t.title}
           className="card"
-          onClick={() => onOpen(t.key)}
+          onClick={() => (t.path ? navigate(t.path) : onOpen(t.key))}
           style={{ textAlign: 'left', cursor: 'pointer', font: 'inherit', border: '1px solid var(--line)', padding: 0 }}
         >
           <div className="card__body" style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '20px 20px 16px', minHeight: 150 }}>
@@ -357,9 +347,8 @@ export default function AdminPage() {
   const rawTab = params.get('tab')
   // No ?tab → the hub of component tiles; a tab value → that component.
   const tab: Tab | null =
-    rawTab === 'users' || rawTab === 'survey' || rawTab === 'comms' || rawTab === 'forms' || rawTab === 'config' ? rawTab : null
+    rawTab === 'users' || rawTab === 'forms' || rawTab === 'workflow' || rawTab === 'config' ? rawTab : null
   const openTab = (t: Tab) => setParams({ tab: t })
-  const goHub = () => setParams({})
 
   const active = TABS.find((t) => t.key === tab)
 
@@ -380,21 +369,10 @@ export default function AdminPage() {
         <AdminHub onOpen={openTab} />
       ) : (
         <>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
-            <button className="btn btn--ghost btn--sm" onClick={goHub}>← All Admin</button>
-            <div className="tabs" style={{ marginBottom: 0 }}>
-              {TABS.map((t) => (
-                <button key={t.key} className="tab" aria-selected={tab === t.key} onClick={() => openTab(t.key)} title={t.blurb}>
-                  {t.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
+          {/* Section switching lives in the left rail (contextual nav), not in-page tabs. */}
           {tab === 'users' && <UsersAndAccess />}
-          {tab === 'survey' && <SurveyStudio />}
-          {tab === 'comms' && <Communication />}
           {tab === 'forms' && <FormBuilder />}
+          {tab === 'workflow' && <AdminWorkflows />}
           {tab === 'config' && <Configuration />}
         </>
       )}

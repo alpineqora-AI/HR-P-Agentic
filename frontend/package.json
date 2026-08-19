@@ -1,5 +1,5 @@
 {
-  "name": "olivia-frontend",
+  "name": "taportal-frontend",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -10,6 +10,15 @@
   },
   "dependencies": {
     "@tanstack/react-query": "^5.100.14",
+    "@tiptap/core": "^3.28.0",
+    "@tiptap/extension-link": "^3.28.0",
+    "@tiptap/extension-text-align": "^3.28.0",
+    "@tiptap/extension-underline": "^3.28.0",
+    "@tiptap/react": "^3.28.0",
+    "@tiptap/starter-kit": "^3.28.0",
+    "@xyflow/react": "^12.11.2",
+    "ag-grid-community": "^35.3.1",
+    "ag-grid-react": "^35.3.1",
     "axios": "^1.16.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

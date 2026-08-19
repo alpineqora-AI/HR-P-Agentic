@@ -12,6 +12,9 @@ import.meta.glob('./styles/*.local.css', { eager: true })
 import { AppShell } from './components/AppShell'
 import { StoreProvider } from './state/store'
 import { ConfigProvider, useConfig } from './state/config'
+import EventRegisterPage from './pages/EventRegisterPage'
+import SelfSchedulePage from './pages/SelfSchedulePage'
+import CareersEventsPage from './pages/CareersEventsPage'
 
 // Recruiter / ATS pages
 import OverviewPage from './pages/OverviewPage'
@@ -20,7 +23,9 @@ import JobDetailPage from './pages/JobDetailPage'
 import PipelinePage from './pages/PipelinePage'
 import CandidatesPage from './pages/CandidatesPage'
 import CandidateDetailPage from './pages/CandidateDetailPage'
+import ApprovalsPage from './pages/ApprovalsPage'
 import InterviewsPage from './pages/InterviewsPage'
+import AvailabilityPage from './pages/AvailabilityPage'
 import AssessmentsPage from './pages/AssessmentsPage'
 import OffersPage from './pages/OffersPage'
 import OnboardingPage from './pages/OnboardingPage'
@@ -38,6 +43,8 @@ import CompliancePage from './pages/CompliancePage'
 import IntegrationsPage from './pages/IntegrationsPage'
 import AuditPage from './pages/AuditPage'
 import AdminPage from './pages/AdminPage'
+import EmailTemplateList from './pages/admin/communications/EmailTemplateList'
+import EmailTemplateEditor from './pages/admin/communications/EmailTemplateEditor'
 
 /** Redirect to Overview if the route's module has been turned off in config. */
 function RequireModule({ module, children }: { module: string; children: ReactNode }) {
@@ -58,7 +65,9 @@ function RecruiterApp() {
         <Route path="/pipeline" element={m('pipeline', <PipelinePage />)} />
         <Route path="/candidates" element={m('candidates', <CandidatesPage />)} />
         <Route path="/candidates/:id" element={m('candidates', <CandidateDetailPage />)} />
+        <Route path="/approvals" element={m('approvals', <ApprovalsPage />)} />
         <Route path="/interviews" element={m('interviews', <InterviewsPage />)} />
+        <Route path="/availability" element={m('availability', <AvailabilityPage />)} />
         <Route path="/assessments" element={m('assessments', <AssessmentsPage />)} />
         <Route path="/offers" element={m('offers', <OffersPage />)} />
         <Route path="/onboarding" element={m('onboarding', <OnboardingPage />)} />
@@ -76,10 +85,26 @@ function RecruiterApp() {
         <Route path="/integrations" element={m('integrations', <IntegrationsPage />)} />
         <Route path="/audit" element={m('audit', <AuditPage />)} />
         <Route path="/admin" element={m('admin', <AdminPage />)} />
+        <Route path="/admin/communications" element={m('admin', <EmailTemplateList />)} />
+        <Route path="/admin/communications/new" element={m('admin', <EmailTemplateEditor />)} />
+        <Route path="/admin/communications/:templateId/edit" element={m('admin', <EmailTemplateEditor />)} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </AppShell>
   )
+}
+
+// One-time migration: storage keys were renamed olivia.* -> taportal.* (the old
+// internal code name is retired). Copy any legacy values so saved surveys,
+// templates and settings survive; safe to delete once every browser has run it.
+for (const key of Object.keys(localStorage)) {
+  if (key.startsWith('olivia.')) {
+    const renamed = `taportal.${key.slice('olivia.'.length)}`
+    if (localStorage.getItem(renamed) === null) {
+      localStorage.setItem(renamed, localStorage.getItem(key)!)
+    }
+    localStorage.removeItem(key)
+  }
 }
 
 const queryClient = new QueryClient({
@@ -93,6 +118,11 @@ createRoot(document.getElementById('root')!).render(
         <StoreProvider>
           <BrowserRouter>
             <Routes>
+              {/* Shell-less public surface: the campus career site we host
+                  ourselves (replacing tal.net/Oleeo) — events board + registration. */}
+              <Route path="/careers/events" element={<CareersEventsPage />} />
+              <Route path="/register/:eventId" element={<EventRegisterPage />} />
+              <Route path="/schedule/:interviewId" element={<SelfSchedulePage />} />
               {/* The recruiter console. The candidate-facing "Careers and Conv"
                   app is integrated separately. */}
               <Route path="/*" element={<RecruiterApp />} />

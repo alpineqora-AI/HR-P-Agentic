@@ -320,9 +320,9 @@
   }
 
   function applyState(st){
-    var olivia=(st.messages||[]).filter(function(m){return m.sender==='OLIVIA';});
-    for(var i=ariaShown;i<olivia.length;i++){addBubble(olivia[i].body,'bot');}
-    ariaShown=olivia.length;
+    var ariaMsgs=(st.messages||[]).filter(function(m){return m.sender==='ARIA';});
+    for(var i=ariaShown;i<ariaMsgs.length;i++){addBubble(ariaMsgs[i].body,'bot');}
+    ariaShown=ariaMsgs.length;
     if(st.status==='COMPLETED'){clearChips();lockInput(true);return;}
     if(st.options&&st.options.length){showChips(st.options.map(function(o){return {label:o,on:function(){echoSend(o);}};}));}
   }

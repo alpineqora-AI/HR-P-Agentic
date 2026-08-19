@@ -1,4 +1,4 @@
-// Mirrors the backend DTOs (com.olivia.api.*). See docs/CONTRACT.md.
+// Mirrors the backend DTOs (com.taportal.api.*). See docs/CONTRACT.md.
 // IDs serialize as strings, money as number, dates as ISO strings.
 
 // ---- Jobs / requisitions ----
@@ -120,6 +120,7 @@ export interface Interview {
   score: number
   recommendation: string
   summary: string
+  meetingLink: string | null
 }
 
 export interface Slot {
@@ -130,6 +131,67 @@ export interface Slot {
   startsAt: string
   endsAt: string
   booked: boolean
+  interviewId: string | null
+  status: string
+}
+
+// ---- Scheduling radar ----
+
+export interface AttentionItem {
+  interviewId: string
+  applicationId: string
+  candidateName: string
+  jobTitle: string
+  status: string
+  scheduledAt: string | null
+  waitingHours: number
+  meetingLink: string | null
+  interviewers: string[]
+}
+
+export interface InterviewerLoad {
+  userId: string
+  name: string
+  initials: string
+  role: string
+  next7Days: number
+}
+
+export interface SchedulingOverview {
+  awaitingCandidate: AttentionItem[]
+  needsOutcome: AttentionItem[]
+  noShows: AttentionItem[]
+  today: AttentionItem[]
+  load: InterviewerLoad[]
+}
+
+// ---- Forms ----
+
+export interface FormDefinitionDto {
+  id: string
+  purpose: string
+  name: string
+  schema: string
+  template: boolean
+  defaultForKind: boolean
+  updatedAt: string
+}
+
+/** Library listing row (schema omitted). */
+export interface FormMeta {
+  id: string
+  purpose: string
+  name: string
+  template: boolean
+  defaultForKind: boolean
+  updatedAt: string
+}
+
+export interface FormResponseRow {
+  id: string
+  formPurpose: string
+  answers: string
+  createdAt: string
 }
 
 // ---- Assessments ----
@@ -244,9 +306,46 @@ export interface EventRow {
   type: string
   location: string
   startsAt: string
+  endsAt: string | null
+  timezone: string
+  /** Latest approval status (PENDING/APPROVED/AUTO_APPROVED/REJECTED), null if never routed. */
+  approvalStatus: string | null
   registrations: number
   attended: number
   hires: number
+}
+
+// ---- Campus: schools + event rosters ----
+
+export interface School {
+  id: string
+  name: string
+  location: string | null
+  tier: string
+}
+
+export interface EventRegistration {
+  id: string
+  eventId: string
+  candidateId: string | null
+  name: string
+  email: string
+  schoolId: string | null
+  schoolName: string | null
+  major: string | null
+  gradYear: number | null
+  source: string
+  status: string
+  checkedInAt: string | null
+}
+
+export interface RegisterAttendeeInput {
+  name: string
+  email: string
+  schoolId?: string
+  major?: string
+  gradYear?: number
+  walkIn?: boolean
 }
 
 export interface EventCreate {
@@ -254,6 +353,11 @@ export interface EventCreate {
   type: string
   location: string
   startsAt: string
+  endsAt?: string
+  timezone?: string
+  intakeFormId?: string
+  /** Route this event down the workflow's flagged/exception path. */
+  flaggedCritical?: boolean
 }
 
 // ---- Write payloads (recruiter actions) ----
@@ -371,7 +475,7 @@ export interface AnalyticsSummary {
   funnel: FunnelStage[]
 }
 
-// ---- Olivia conversation engine ----
+// ---- Aria conversation engine ----
 
 export interface ChatMessage {
   id: string
