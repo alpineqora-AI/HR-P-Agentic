@@ -114,6 +114,51 @@ public class ApprovalWorkflowService {
         return list();
     }
 
+    /**
+     * Refuse (422), without storing anything, a definition that {@link #saveAll} would refuse: a second
+     * enabled workflow for a trigger, or a workflow that routes live requests switched on or redrawn
+     * while a rule in it is unanswerable. Used to tell an editor at once rather than at review.
+     *
+     * @param switchingOff workflows whose own open change switches them off: they do not count as
+     *                     holding their trigger, so a hand-over between two workflows can be proposed
+     *                     (approval checks again against what is live then)
+     */
+    public void requireApplicable(WorkflowDto dto, Set<String> switchingOff) {
+        if (dto.enabled()) {
+            for (ApprovalWorkflowRecord r : repository.findByOrderByWfKey()) {
+                if (!r.getWfKey().equals(dto.key()) && r.isEnabled() && !switchingOff.contains(r.getWfKey())
+                        && r.getTriggerType().equalsIgnoreCase(dto.trigger())) {
+                    throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
+                            "“" + r.getName() + "” already handles the " + r.getTriggerType()
+                                    + " trigger, and only one workflow handles a trigger. Switch it off in the same edit,"
+                                    + " so both changes go to review together.");
+                }
+            }
+        }
+        ApprovalWorkflowRecord stored = repository.findByWfKey(dto.key()).orElse(null);
+        ApprovalWorkflowRecord proposed = new ApprovalWorkflowRecord(
+                null, dto.key(), dto.name(), dto.trigger(), dto.enabled(), dto.autoApprove(),
+                json(dto.levels(), "[]"),
+                dto.graph() != null && !dto.graph().isNull() ? jsonOrNull(dto.graph())
+                        : stored == null ? null : stored.getGraphJson(),
+                null, null);
+        if (!java.util.Objects.equals(stored == null ? null : liveSignature(stored), liveSignature(proposed))) {
+            requireSound(proposed);
+        }
+    }
+
+    /** Refuse (404, 422), without deleting, what {@link #delete} would refuse. */
+    public void requireDeletable(String key) {
+        repository.findByWfKey(key)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Workflow not found"));
+        long pending = requestRepository.countByWfKeyAndStatus(key, ApprovalRequest.Status.PENDING);
+        if (pending > 0) {
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
+                    pending + " pending request" + (pending == 1 ? "" : "s")
+                            + " still route through this workflow — decide them first.");
+        }
+    }
+
     /** "off" unless the workflow routes live requests; otherwise its normalised definition. */
     private String liveSignature(ApprovalWorkflowRecord r) {
         boolean live = r.isEnabled() && routed(r.getTriggerType());
@@ -218,7 +263,8 @@ public class ApprovalWorkflowService {
 
     /* ---------- json helpers ---------- */
 
-    private WorkflowDto toDto(ApprovalWorkflowRecord r) {
+    /** A stored (live) workflow as the screens see it. */
+    WorkflowDto toDto(ApprovalWorkflowRecord r) {
         return new WorkflowDto(
                 r.getWfKey(), r.getName(), r.getTriggerType(), r.isEnabled(), r.isAutoApprove(),
                 readJson(r.getLevelsJson()), readGraph(r), r.getUpdatedAt());

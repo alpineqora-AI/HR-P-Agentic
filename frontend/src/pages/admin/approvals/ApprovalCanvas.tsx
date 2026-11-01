@@ -38,8 +38,8 @@ import { useConfig } from '@/state/config'
 import type { ApprovalWorkflow, Role, WorkflowGraph, WorkflowNode } from './approvals'
 import { useStore } from '@/state/store'
 import {
-  checkWorkflow, useSaveServerWorkflows, useSimulateWorkflow, toServerDto,
-  type CheckIssue, type SimulateResult,
+  checkWorkflow, useSaveServerWorkflows, useSimulateWorkflow, toServerDto, fromServerDto,
+  type CheckIssue, type SimulateResult, type ServerWorkflowDto,
 } from './approvals'
 import { commsApi } from '../communications/commsApi'
 import { SPEC, Icons } from './canvasTheme'
@@ -922,7 +922,13 @@ function CanvasDialog({ label, onClose, children }: { label: string; onClose: ()
   )
 }
 
-export default function ApprovalCanvas(props: { workflow: ApprovalWorkflow; onClose: () => void; onSaved: (w: ApprovalWorkflow) => void }) {
+export default function ApprovalCanvas(props: {
+  workflow: ApprovalWorkflow
+  onClose: () => void
+  onSaved: (w: ApprovalWorkflow) => void
+  /** A line under the title: where this drawing stands in review. */
+  notice?: string | null
+}) {
   // Portal onto the shell element (not <body>): escapes the content subtree's
   // transformed ancestors — otherwise React Flow can't measure nodes and edges
   // won't render — while still inheriting the shell's geometry CSS vars
@@ -936,7 +942,7 @@ export default function ApprovalCanvas(props: { workflow: ApprovalWorkflow; onCl
   )
 }
 
-function ApprovalCanvasInner({ workflow, onClose, onSaved }: { workflow: ApprovalWorkflow; onClose: () => void; onSaved: (w: ApprovalWorkflow) => void }) {
+function ApprovalCanvasInner({ workflow, onClose, onSaved, notice }: { workflow: ApprovalWorkflow; onClose: () => void; onSaved: (w: ApprovalWorkflow) => void; notice?: string | null }) {
   const { roles } = useConfig()
   const { toastMsg: flash } = useStore()
   const flashRef = useRef(flash)
@@ -1653,18 +1659,26 @@ function ApprovalCanvasInner({ workflow, onClose, onSaved }: { workflow: Approva
   const save = async () => {
     const patch = buildPatch()
     const updated = { ...workflow, ...patch }
+    let saved: ServerWorkflowDto | undefined
     try {
-      await saveServer.mutateAsync([toServerDto(updated)])
+      // The server keeps it as a change for review, not as the live workflow; its answer says which.
+      const data = await saveServer.mutateAsync([toServerDto(updated)])
+      saved = data.find((d) => d.key === updated.id)
     } catch (e) {
-      // The server refused (e.g. a rule with no NO path on a live workflow).
+      // The server refused (a rule with no NO path on a live workflow, or a copy that is out of date).
       // Keep the canvas open with the work intact and say why.
       const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message
       flash(msg ?? 'Could not save the workflow', 'danger')
       return
     }
-    onSaved(updated)
-    // A journey has no approval chain: it follows what the candidate and the hiring team do.
-    flash(isJourney ? 'Workflow saved' : 'Workflow saved · approval chain updated')
+    onSaved(saved ? fromServerDto(saved) : updated)
+    flash(
+      !saved?.change
+        ? 'Saved. It matches the live version, so there is nothing to review.'
+        : saved.change.status === 'DRAFT'
+          ? 'Saved as a draft. Send it for review from its card when it is ready.'
+          : 'Saved.',
+    )
     onClose()
   }
 
@@ -2025,6 +2039,7 @@ function ApprovalCanvasInner({ workflow, onClose, onSaved }: { workflow: Approva
         <div className="wfc-top__meta">
           <div className="wfc-top__kicker">Workflow canvas</div>
           <div className="wfc-top__title">{workflow.name}</div>
+          {notice && <div style={{ fontSize: 12.5, color: 'var(--ink-3)', marginTop: 3 }}>{notice}</div>}
         </div>
 
         {/* A journey is not routed like a request, so there is no route to test (the server refuses too). */}

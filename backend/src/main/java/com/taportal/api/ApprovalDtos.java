@@ -9,7 +9,22 @@ public final class ApprovalDtos {
 
     private ApprovalDtos() {}
 
-    /** One workflow; {@code levels}/{@code graph} are passed through as JSON (canvas owns the shape). */
+    /**
+     * One workflow; {@code levels}/{@code graph} are passed through as JSON (canvas owns the shape).
+     *
+     * <p>As the Workflows screen reads it, it is the working copy: the open change's proposed version
+     * when there is one, otherwise the live one.
+     *
+     * @param change      the open change to this workflow (draft or waiting for review), or null; the
+     *                    server's to set, ignored on the way in
+     * @param live        true when the workflow is live (approved and stored); false for a new one not
+     *                    yet approved; null on the way in
+     * @param liveEnabled whether the live version is switched on; null when there is no live version
+     * @param base        what this copy was built from (the open change at a revision, or the live
+     *                    version); the screen sends it back with an edit, and an edit made to a copy
+     *                    that is out of date is refused rather than read as a change; null for a
+     *                    workflow the screen has just created
+     */
     public record WorkflowDto(
             String key,
             String name,
@@ -18,7 +33,66 @@ public final class ApprovalDtos {
             boolean autoApprove,
             JsonNode levels,
             JsonNode graph,
-            OffsetDateTime updatedAt) {
+            OffsetDateTime updatedAt,
+            ChangeDto change,
+            Boolean live,
+            Boolean liveEnabled,
+            String base) {
+
+        public WorkflowDto(
+                String key, String name, String trigger, boolean enabled, boolean autoApprove,
+                JsonNode levels, JsonNode graph, OffsetDateTime updatedAt) {
+            this(key, name, trigger, enabled, autoApprove, levels, graph, updatedAt, null, null, null, null);
+        }
+    }
+
+    /**
+     * A proposed change to a workflow, as the editor and the reviewer see it.
+     *
+     * @param kind       CREATE, UPDATE or DELETE
+     * @param status     DRAFT, PENDING, APPROVED, REJECTED or WITHDRAWN
+     * @param summary    what changed, in words, one line each (the first {@code SHOWN}; see {@code more})
+     * @param more       how many more lines of change there are than {@code summary} shows
+     * @param editors    everyone who edited it; none of them may approve it
+     * @param revision   the change's revision: a decision names the one the reviewer read
+     * @param yours      true when the acting user edited it, and so may send it, take it back or discard it
+     * @param reviewable true when the acting user may approve or reject it now
+     * @param whyNotYou  when not reviewable by the acting user, why; null otherwise
+     * @param outcome    what became of it, in words, once decided or withdrawn; null while open
+     */
+    public record ChangeDto(
+            java.util.UUID id,
+            String wfKey,
+            String workflowName,
+            String kind,
+            String status,
+            List<String> summary,
+            int more,
+            List<String> editors,
+            String submittedBy,
+            OffsetDateTime submittedAt,
+            String decidedBy,
+            OffsetDateTime decidedAt,
+            String note,
+            OffsetDateTime updatedAt,
+            long revision,
+            boolean yours,
+            boolean reviewable,
+            String whyNotYou,
+            String outcome) {
+    }
+
+    /**
+     * A reviewer's decision.
+     *
+     * @param note     required to reject, so the editor knows why
+     * @param revision the revision of the change the reviewer read; a change edited since is refused
+     */
+    public record DecisionRequest(String note, Long revision) {
+    }
+
+    /** Who the server takes the acting user to be. */
+    public record ActingUser(java.util.UUID id, String name, String role) {
     }
 
     /**

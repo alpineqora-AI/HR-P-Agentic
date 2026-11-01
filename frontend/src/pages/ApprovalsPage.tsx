@@ -1,8 +1,9 @@
-import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { useApprovalRequests, useDecideApproval, type ApprovalRequestApi } from '@/pages/admin/approvals/approvals'
+import { useEffect, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useApprovalRequests, useDecideApproval, useWorkflowChanges, type ApprovalRequestApi } from '@/pages/admin/approvals/approvals'
 import { useConfig } from '@/state/config'
 import { useStore } from '@/state/store'
+import WorkflowChangesPanel from './WorkflowChangesPanel'
 
 /* The approvals work queue (lifted from AlpineQora-Labs/VMS, adapted to the
    TA Portal): requests routed here by the approval workflows — events, offers —
@@ -51,8 +52,16 @@ export default function ApprovalsPage() {
   const { toastMsg } = useStore()
   const { roles } = useConfig()
   const roleName = (k: string) => roles.find((r) => r.key === k)?.name ?? k
-  const [tab, setTab] = useState<'PENDING' | 'all'>('PENDING')
+  // A notification about a workflow change links here with ?tab=changes.
+  const [params] = useSearchParams()
+  const [tab, setTab] = useState<'PENDING' | 'all' | 'changes'>(params.get('tab') === 'changes' ? 'changes' : 'PENDING')
+  // Followed when the address changes while the page is open (a notification link, say).
+  const asked = params.get('tab')
+  useEffect(() => {
+    if (asked === 'changes') setTab('changes')
+  }, [asked])
   const { data, isLoading, isError, refetch } = useApprovalRequests(tab === 'PENDING' ? 'PENDING' : undefined)
+  const { data: waitingChanges } = useWorkflowChanges('PENDING')
   const decide = useDecideApproval()
 
   const act = (id: string, decision: 'approve' | 'reject') =>
@@ -81,7 +90,10 @@ export default function ApprovalsPage() {
         <div className="page-head__row">
           <div>
             <h1>Approvals</h1>
-            <p className="sub">Requests routed here by the approval workflows. Each clears its chain level by level.</p>
+            <p className="sub">
+              Requests routed here by the approval workflows, each clearing its chain level by level, and changes to the
+              workflows themselves, which go live only once reviewed.
+            </p>
           </div>
           <button className="btn btn--outline" onClick={() => navigate('/admin?tab=workflow')}>
             Edit workflows
@@ -96,9 +108,14 @@ export default function ApprovalsPage() {
         <button className="tab" aria-selected={tab === 'all'} onClick={() => setTab('all')}>
           All requests
         </button>
+        <button className="tab" aria-selected={tab === 'changes'} onClick={() => setTab('changes')}>
+          Workflow changes{waitingChanges && waitingChanges.length > 0 ? ` · ${waitingChanges.length}` : ''}
+        </button>
       </div>
 
-      {isLoading ? (
+      {tab === 'changes' ? (
+        <WorkflowChangesPanel />
+      ) : isLoading ? (
         <div className="card">
           <div className="card__body" style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--ink-4)' }}>
             Loading approvals…

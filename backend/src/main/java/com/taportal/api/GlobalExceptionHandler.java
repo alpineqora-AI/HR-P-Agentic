@@ -77,9 +77,12 @@ public class GlobalExceptionHandler {
                 .body(ErrorResponse.of("CONFLICT", "The request conflicts with existing data"));
     }
 
-    /** Concurrent modification detected via @Version optimistic locking. */
-    @ExceptionHandler(OptimisticLockException.class)
-    public ResponseEntity<ErrorResponse> handleOptimisticLock(OptimisticLockException ex) {
+    /**
+     * Concurrent modification detected via @Version optimistic locking. Spring's repositories report it
+     * as ObjectOptimisticLockingFailureException, the persistence provider as OptimisticLockException.
+     */
+    @ExceptionHandler({OptimisticLockException.class, org.springframework.orm.ObjectOptimisticLockingFailureException.class})
+    public ResponseEntity<ErrorResponse> handleOptimisticLock(Exception ex) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(ErrorResponse.of("CONFLICT", "The record was modified by someone else — reload and retry"));
     }

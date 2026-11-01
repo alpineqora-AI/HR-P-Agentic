@@ -57,6 +57,8 @@ export interface ApprovalWorkflow {
   autoApprove: boolean
   levels: ApprovalLevel[]
   graph?: WorkflowGraph
+  /** What this copy was built from, as the server said; sent back with an edit so an out-of-date copy is refused. */
+  base?: string | null
 }
 
 /** A role option for approver dropdowns. */
@@ -76,7 +78,101 @@ export interface ServerWorkflowDto {
   levels: ApprovalLevel[]
   graph: WorkflowGraph | null
   updatedAt: string | null
+  /** The open change to this workflow (a draft, or waiting for review), or null. Set by the server. */
+  change?: WorkflowChange | null
+  /** True when the workflow is live; false for a new one not yet approved. Set by the server. */
+  live?: boolean | null
+  /** Whether the live version is switched on; null when there is none. Set by the server. */
+  liveEnabled?: boolean | null
+  /** What this copy was built from; sent back unchanged with an edit. */
+  base?: string | null
 }
+
+/**
+ * A proposed change to a workflow. Edits never change a live workflow: they are kept as a change that
+ * an admin who did not edit it approves before it goes live.
+ */
+export interface WorkflowChange {
+  id: string
+  wfKey: string
+  workflowName: string
+  kind: 'CREATE' | 'UPDATE' | 'DELETE'
+  status: 'DRAFT' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'WITHDRAWN'
+  /** What changed, in words, one line each (the first ones; see more). */
+  summary: string[]
+  /** How many more lines of change there are than summary shows. */
+  more: number
+  /** Everyone who edited it; none of them may approve it. */
+  editors: string[]
+  submittedBy: string | null
+  submittedAt: string | null
+  decidedBy: string | null
+  decidedAt: string | null
+  note: string | null
+  updatedAt: string
+  /** The change's revision: a decision names the one the reviewer read. */
+  revision: number
+  /** True when the acting user edited it, and so may send it, take it back or discard it. */
+  yours: boolean
+  /** True when the acting user may approve or reject it now. */
+  reviewable: boolean
+  /** Why the acting user may not, when they may not. */
+  whyNotYou: string | null
+  /** What became of it, in words, once decided or withdrawn; null while open. */
+  outcome: string | null
+}
+
+/** Workflow changes: PENDING (waiting for review), OPEN (drafts too) or ALL (the latest fifty). */
+export function useWorkflowChanges(status: 'PENDING' | 'OPEN' | 'ALL' = 'PENDING') {
+  return useQuery({
+    queryKey: ['workflow-changes', status],
+    queryFn: () => api.get<WorkflowChange[]>('/workflow-changes', { params: { status } }).then((r) => r.data),
+  })
+}
+
+/**
+ * Act on a change: send it for review, take it back to edit (recall), discard it (withdraw), or decide it.
+ * A decision names the revision the reviewer read. Both the review list and the working copy are asked again.
+ */
+export function useChangeAction() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, action, note, revision }: {
+      id: string
+      action: 'submit' | 'recall' | 'withdraw' | 'approve' | 'reject'
+      note?: string
+      revision?: number
+    }) =>
+      api.post<WorkflowChange>(
+        `/workflow-changes/${id}/${action}`,
+        action === 'approve' || action === 'reject' ? { note, revision } : undefined,
+      ).then((r) => r.data),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['workflow-changes'] })
+      qc.invalidateQueries({ queryKey: ['approval-workflows'] })
+    },
+  })
+}
+
+/** Who the server takes the acting user to be. */
+export function useActingUser() {
+  return useQuery({
+    queryKey: ['me'],
+    queryFn: () => api.get<{ id: string | null; name: string | null; role: string | null }>('/me').then((r) => r.data),
+  })
+}
+
+/** The portal's people, to act as one of them (the prototype has no sign-in). */
+export function usePeople() {
+  return useQuery({
+    queryKey: ['people'],
+    queryFn: () => api.get<{ id: string; name: string; role: string; title: string | null }[]>('/availability/users').then((r) => r.data),
+  })
+}
+
+/** The server's refusal in words, or a fallback. */
+export const refusalOf = (e: unknown, fallback: string) =>
+  (e as { response?: { data?: { message?: string } } })?.response?.data?.message ?? fallback
 
 export const toServerDto = (w: ApprovalWorkflow): ServerWorkflowDto => ({
   key: w.id,
@@ -87,6 +183,7 @@ export const toServerDto = (w: ApprovalWorkflow): ServerWorkflowDto => ({
   levels: w.levels,
   graph: w.graph ?? null,
   updatedAt: null,
+  base: w.base ?? null,
 })
 
 export const fromServerDto = (d: ServerWorkflowDto): ApprovalWorkflow => ({
@@ -97,6 +194,7 @@ export const fromServerDto = (d: ServerWorkflowDto): ApprovalWorkflow => ({
   autoApprove: d.autoApprove,
   levels: d.levels ?? [],
   graph: d.graph ?? undefined,
+  base: d.base ?? null,
 })
 
 export function useServerWorkflows() {
